@@ -1,7 +1,0 @@
-#!/usr/bin/perl
-
-use Hopkins;
-
-my $hopkins = new Hopkins '/usr/src/hopkins/hopkins.xml';
-
-
