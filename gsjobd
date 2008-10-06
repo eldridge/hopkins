@@ -1,0 +1,550 @@
+#!/usr/bin/perl
+
+use strict;
+
+=head1 NAME
+
+gsjobd - greenspan job daemon
+
+=head1 DESCRIPTION
+
+=cut
+
+use DateTime;
+use DateTime::Event::MultiCron;
+use DateTime::Set;
+use File::Monitor;
+use Getopt::Compact;
+use XML::Simple;
+
+use POE qw(Component::JobQueue Component::Server::SOAP Wheel::Run);
+
+use Hopkins;
+use Hopkins::Schema;
+
+sub POE::Component::Server::SOAP::DEBUG () { 0 }
+sub POE::Wheel::SocketFactory::DEBUG { 0 }
+
+# use Getopt::Compact to process any command-line options.
+# we use Getopt::Compact instead of Getopt::Long simply for
+# the nifty built-in help option that displays usage info.
+
+my $go = new Getopt::Compact name => 'gsjobd', struct => [
+	[ [ 'c', 'conf' ],		'XML config file',							'=s' ],
+	[ [ 'l', 'l4pconf' ],	'log4perl config file',						'=s' ],
+	[ [ 's', 'scan' ],		'config file scan interval (in seconds)',	'=i' ],
+	[ [ 'p', 'poll' ],		'queue poll interval (in seconds)',			'=i' ]
+];
+
+my $global = $go->opts;
+
+# defaults
+$global->{conf}		||=	'/etc/greenspan/hopkins.xml';
+$global->{l4pconf}	||= '/etc/greenspan/log4perl.conf';
+$global->{scan}		||= 30;
+$global->{poll}		||= 30;
+
+# initialize Log::Log4perl
+Log::Log4perl::init_and_watch($global->{l4pconf}, $global->{scan});
+
+# load the SOAP POE component
+new POE::Component::Server::SOAP ALIAS => 'soap', ADDRESS => 0, PORT => 8080;
+
+# create the POE Sessions that will be the bread and butter
+# of the job daemon's normal function.  we have two distinct
+# POE sessions: the manager session and the RPC session.  the
+# manager session handles the queuing and execution of tasks
+# while the RPC session handles the external SOAP interface.
+
+# create manager session
+POE::Session->create
+(
+	inline_states => {
+		_start		=> \&manager_start,
+		_stop		=> \&manager_stop,
+
+		postback	=> \&manager_postback,
+		confscan	=> \&manager_config_scan,
+		confload	=> \&manager_config_load,
+		queueinit	=> \&manager_queue_init,
+		storeinit	=> \&manager_store_init,
+		scheduler	=> \&manager_scheduler,
+		shutdown	=> \&manager_shutdown
+	}
+);
+
+# create RPC session
+POE::Session->create
+(
+	inline_states => {
+		_start	=> \&rpc_start,
+		_stop	=> \&rpc_stop,
+		enqueue	=> \&rpc_enqueue
+	}
+);
+
+# start the POE kernel
+POE::Kernel->run;
+
+exit;
+
+=head1 RPC SESSION EVENTS
+
+=over 4
+
+=item rpc_start
+
+=cut
+
+sub rpc_start
+{
+	my $kernel = $_[KERNEL];
+
+	$kernel->alias_set('rpc');
+	$kernel->post(soap => ADDMETHOD => rpc => 'enqueue');
+}
+
+=item rpc_stop
+
+=cut
+
+sub rpc_stop
+{
+	my $kernel = $_[KERNEL];
+
+	$kernel->post(soap => DELMETHOD => rpc => 'enqueue');
+}
+
+=item rpc_enqueue
+
+=cut
+
+sub rpc_enqueue
+{
+	my $kernel	= $_[KERNEL];
+	my $res		= $_[ARG0];
+	my $params	= $res->soapbody;
+
+	my ($class, $options) = map { $params->{$_} } sort keys %$params;
+
+	#print "enqueue message received for '$class'\n";
+	#print "options are: \n";
+	#print "\t$_: $options->{$_}\n" foreach keys %$options;
+
+	$kernel->post(worker => enqueue => postback => $class, $options);
+
+	$res->content(1);
+	$kernel->post(soap => DONE => $res);
+}
+
+=back
+
+=head1 TASK MANAGER SESSION EVENTS
+
+=over 4
+
+=item start
+
+=cut
+
+sub manager_start
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+
+	# set the alias for the current session
+	$kernel->alias_set('manager');
+
+	# create a File::Monitor object, a callback, and an
+	# associated POE alarm to watch the configuration file
+	# for subsequent changes
+
+	my $callback = sub {
+		Hopkins->log_info('configuration file changed');
+		$kernel->post(manager => 'confload')
+	};
+
+	$heap->{confmon} = new File::Monitor;
+	$heap->{confmon}->watch($global->{conf}, $callback);
+
+	$kernel->alarm(confscan => time + $global->{scan});
+
+	# post events for initial setup
+	$kernel->post(manager => 'confload');	# configuration file
+	$kernel->post(manager => 'storeinit');	# database schema
+	$kernel->post(manager => 'queueinit');	# scheduler and worker
+
+	$kernel->alarm(scheduler => time + $global->{poll});
+}
+
+=item stop
+
+=cut
+
+sub manager_stop
+{
+	Hopkins->log_debug('manager exiting');
+}
+
+=item manager_shutdown
+
+=cut
+
+sub manager_shutdown
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+
+	Hopkins->log_info('received shutdown request');
+
+	#$kernel->post($_ => 'stop') foreach keys %{ $heap->{config}->{queue} };
+
+	foreach my $name (keys %{ $heap->{config}->{queue} }) {
+		Hopkins->log_debug("posting stop event for $name queue");
+		$kernel->post($name => 'stop');
+	}
+}
+
+=item manager_store_init
+
+=cut
+
+sub manager_store_init
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+	
+	my $config	= $heap->{config}->{database};
+	my $dsn		= $config->{dsn};
+	my $user	= $config->{user};
+	my $pass	= $config->{pass};
+	my $opts	= $config->{options};
+
+	if (not defined $dsn) {
+		Hopkins->log_error('database/dsn not specified, trying again in 5 minutes');
+		$kernel->alarm(storeinit => time + 300);
+	}
+
+	Hopkins->log_debug("attempting to connect to $dsn as $user");
+
+	# connect to the schema.  DBIx::Class does many things
+	# lazily.  i don't mean sans effort; DBIx::Class waits
+	# until the last possible moment to perform many tasks
+	# such as queries.  database connection is no exception,
+	# so make sure that we've made a connection attempt!
+
+	my $schema;
+
+	eval {
+		$schema = Hopkins::Schema->connect($dsn, $user, $pass, $opts);
+		$schema->storage->ensure_connected;
+	};
+
+	if (my $err = $@) {
+		Hopkins->log_error("failed to connect to schema: $err");
+		Hopkins->log_error("trying again in 30 seconds");
+		$kernel->alarm(storeinit => time + 30);
+	} else {
+		Hopkins->log_debug('successfully connected to schema');
+		$heap->{schema} = $schema;
+	}
+}
+
+=item manager_queue_init
+
+=cut
+
+sub manager_queue_init
+{
+	my $heap = $_[HEAP];
+
+	# create a passive queue for each configured queue.  we
+	# use POE::Component::JobQueue and leave the scheduling
+	# up to the manager session.
+
+	foreach my $name (keys %{ $heap->{config}->{queue} }) {
+		my $queue = $heap->{config}->{queue}->{$name};
+
+		Hopkins->log_debug("creating queue with alias $name");
+
+		POE::Component::JobQueue->spawn
+		(
+			Alias		=> $name,
+			WorkerLimit	=> $queue->{concurrency},
+			Worker		=> \&worker_spawn,
+			Passive		=> { },
+		);
+	}
+
+	# this passive queue will act as an on-demand task
+	# execution queue, waiting for enqueue events to be
+	# posted to the kernel.
+
+	#POE::Component::JobQueue->spawn
+	#(
+	#	Alias		=> 'worker',
+	#	WorkerLimit	=> 16,
+	#	Worker		=> \&queue_worker,
+	#	Passive		=> { },
+	#);
+
+	# this active queue will act as a scheduler, checking
+	# the time and polling the list of loaded task configs
+	# for new tasks to spawn
+
+	#POE::Component::JobQueue->spawn
+	#(
+	#	Alias		=> 'scheduler',
+	#	WorkerLimit	=> 16,
+	#	Worker		=> \&queue_scheduler,
+	#	Active		=>
+	#	{
+	#		PollInterval	=> $global->{poll},
+	#		AckAlias		=> 'scheduler',
+	#		AckState		=> \&job_completed
+	#	}
+	#);
+}
+
+=item postback
+
+=cut
+
+sub manager_postback
+{
+	Hopkins->log_debug('postback');
+}
+
+=item manager_config_scan
+
+=cut
+
+sub manager_config_scan
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+
+	#Hopkins->log_debug('scanning configuration file');
+
+	$heap->{confmon}->scan;
+	$kernel->alarm(confscan => time + $global->{scan});
+}
+
+=item manager_config_load
+
+=cut
+
+sub manager_config_load
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+
+	Hopkins->log_debug('loading XML configuration file');
+
+	my %xmlsopts =
+	(
+		KeyAttr			=> { option => 'name', queue => 'name', task => 'name' },
+		ValueAttr		=> [ 'value' ],
+		GroupTags		=> { options => 'option' },
+		SuppressEmpty	=> ''
+	);
+
+	my $ok	= 1;
+	my $xs	= new XML::Simple %xmlsopts;
+	my $ref	= $xs->XMLin($global->{conf});
+
+	# flatten options attributes
+	if (my $href = $ref->{database}->{options}) {
+		$href->{$_} = $href->{$_}->{value} foreach keys %$href;
+	}
+
+	use YAML;
+	print Dump $ref;
+
+	# process any cron-like schedules
+	foreach my $name (keys %{ $ref->{task} }) {
+		my $task = $ref->{task}->{$name};
+		my $node = $task->{schedule};
+
+		next if not defined $node;
+
+		if (!($task->{class} || $task->{cmd})) {
+			Hopkins->log_error("task $name lacks a class or command line");
+			$ok = 0;
+		}
+
+		my @a	= ref($node) eq 'ARRAY' ? @$node : ($node);
+		my $set	= DateTime::Event::MultiCron->from_multicron(@a);
+
+		$ref->{task}->{$name}->{schedules} = $set;
+	}
+
+	# if we already have a schema object, check to see if
+	# the new configuration sports a modified database
+	# configuration.  if it does, we want to reinitialize
+	# the backend
+
+	if ($heap->{schema}) {
+		my @a = @{ $heap->{schema}->storage->connect_info };
+		my @b = map { $ref->{database}->{$_} } qw(dsn user pass options);
+
+		# replace the options hashref (very last element in
+		# the array) with a flattened representation
+
+		splice @a, -1, 1, keys %{ $a[-1] }, values %{ $a[-1] };
+		splice @b, -1, 1, keys %{ $b[-1] }, values %{ $b[-1] };
+
+		# temporarily change the list separator character
+		# (default 0x20, a space) to the subscript separator
+		# character (default 0x1C) for a precise comparison
+		# of the two configurations
+
+		local $" = $;;
+
+		if ("@a" ne "@b") {
+			Hopkins->log_debug('database information changed');
+			$kernel->post(manager => 'storeinit') if $ok;
+		}
+	}
+
+	if ($ok) {
+		$heap->{config} = $ref;
+	} else {
+		Hopkins->log_error('errors in configuration, discarding new version');
+	}
+}
+
+=item manager_scheduler
+
+=cut
+
+sub manager_scheduler
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+
+	Hopkins->log_debug('checking queue for tasks to post');
+
+	my $now		= DateTime->now;
+	my $schema	= $heap->{schema};
+	my $rsTask	= $schema->resultset('Task');
+
+	foreach my $name (keys %{ $heap->{config}->{task} }) {
+		my $task	= $heap->{config}->{task}->{$name};
+		my $set		= $task->{schedules};
+		my $queue	= $task->{queue};
+		my $class	= $task->{class};
+		my $opts	= $task->{option};
+		my $cmd		= $task->{cmd};
+		my $serial	= $task->{run} eq 'serial' ? 1 : 0;
+		my $active	= lc $task->{active} eq 'no' ? 0 : 1;
+		my $last	= $set->previous($now);
+
+		Hopkins->log_debug("checking if $name is marked inactive");
+		next if not $active;
+
+		#Hopkins->log_debug("checking if $name has been executed since $last");
+		#next if $rsTask->task_executed_since($name, $last);
+
+		#Hopkins->log_debug("checking if $name is currently executing");
+		#next if $rsTask->task_executing_now($name) and $serial;
+
+		# post one of two enqueue events, depending on the type of job
+		Hopkins->log_debug("posting enqueue event for $name");
+		$kernel->post($queue => enqueue => undef => perl => $class => $opts) if $class;
+		$kernel->post($queue => enqueue => undef => exec => $cmd) if $cmd;
+
+		# record the fact that we've queued this job
+		$rsTask->create({ name => $name, date_queued => $now });
+	}
+
+	$kernel->alarm(scheduler => time + $global->{poll});
+}
+
+=back
+
+=back
+
+=head1 TASK WORKERS
+
+=over 4
+
+=item worker_spawn
+
+=cut
+
+sub worker_spawn
+{
+	my $postback	= shift;
+	my $method		= shift;
+	my $source		= shift;
+	my $params		= shift;
+
+	Hopkins->log_debug("received worker task enqueue notice");
+	Hopkins->log_debug("task is of type $method");
+	Hopkins->log_debug("source of work is $source");
+
+	POE::Session->create
+	(
+		inline_states => {
+			_start		=> \&worker_start,
+			_stop		=> \&worker_stop,
+			stderr		=> sub { Hopkins->log_debug('got some stderr shit') },
+			error		=> sub { die "FUCK"; Hopkins->log_debug($_) foreach $_[ARG0], $_[ARG1], $_[ARG2], $_[ARG3], $_[ARG4] },
+			exited		=> sub { Hopkins->log_debug('posted exited event') }
+			
+		},
+
+		args => [ $postback, $method, $source, $params ]
+	);
+}
+
+sub worker_start
+{
+	my $kernel		= $_[KERNEL];
+	my $heap		= $_[HEAP];
+	my $postback	= $_[ARG0];
+	my $method		= $_[ARG1];
+	my $source		= $_[ARG2];
+	my $params		= $_[ARG3];
+
+	Hopkins->log_debug("worker session created");
+
+	$heap->{postback} = $postback;
+
+	my $program = $method eq 'perl'
+		? sub { require $source; my $obj = new $source '', $params; $obj->run }
+		: $source;
+
+	$kernel->state('exited', sub { Hopkins->log_debug("child exited ($?)"); $postback->() });
+	$kernel->sig(CHLD => 'exited');
+
+	new POE::Wheel::Run 
+	(
+		Program		=> $program,
+		StderrEvent	=> 'stderr',
+		ErrorEvent	=> 'error'
+	) or die "$0: can't POE::Wheel::Run->new";
+}
+
+sub worker_stop
+{
+	my $heap = $_[HEAP];
+
+	Hopkins->log_debug('child exited');
+
+	$heap->{postback}->();
+}
+	
+=head1 AUTHOR
+
+Mike Eldridge <meldridge@magazines.com>
+
+=head1 LICENSE
+
+(c) 2008 Magazines.com
+
+For Internal Use Only
+
+=cut
+

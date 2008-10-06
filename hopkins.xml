@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tarea>
+	<database>
+		<!-- <dsn>dbi:mysql:database=hopkins;host=localhost</dsn> -->
+		<dsn>dbi:SQLite:dbname=/usr/src/hopkins/hopkins.db</dsn>
+		<user>root</user>
+		<pass></pass>
+		<options>
+			<option name="AutoCommit" value="1" />
+			<option name="RaiseError" value="1" />
+			<option name="mysql_auto_reconnect" value="1" />
+			<option name="quote_char" value="" />
+			<option name="name_sep" value="." />
+		</options>
+	</database>
+
+	<queue name="general">
+		<concurrency>16</concurrency>
+	</queue>
+
+	<queue name="orderproc" onerror="suspend">
+		<concurrency>1</concurrency>
+	</queue>
+
+	<queue name="imageproc" onerror="suspend">
+		<concurrency>1</concurrency>
+	</queue>
+
+	<role>manager</role>
+	<role>worker</role>
+
+	<task name="Test" run="serial">
+		<class>Greenspan::Job::Test</class>
+		<schedule>* * * * *</schedule>
+		<queue>general</queue>
+	</task>
+
+	<task name="ProductImageRefresh" run="serial" active="no">
+		<class>Greenspan::Job::ProductImageRefresh</class>
+		<prereq>ImageFetcher</prereq>
+		<schedule>*/10 * * * *</schedule>
+		<schedule>*/5 * * * *</schedule>
+		<queue>imageproc</queue>
+	</task>
+
+	<task name="GiftAnnouncementFulfillment" run="serial" active="no">
+		<class>Greenspan::Job::Fulfiller::GiftAnnouncement</class>
+		<schedule>20 * * * *</schedule>
+		<queue>general</queue>
+	</task>
+
+	<task name="Charge" run="serial" active="yes">
+		<class>Greenspan::Job::Die</class>
+		<schedule>*/10 * * * *</schedule>
+		<queue>orderproc</queue>
+	</task>
+
+	<task name="B2B Fulfillment: Network World Newsletters" run="serial" active="no">
+		<class>Greenspan::Job::Fulfiller::B2B::FTP</class>
+		<schedule>0 0 * * 4</schedule>
+		<queue>fulfillment</queue>
+		<option name="fulfiller_id" value="258" />
+		<option name="cutoff" value="week" />
+		<option name="ftp_host" value="ftp.nww.com" />
+		<option name="ftp_user" value="magazin" />
+		<option name="ftp_pass" value="5te2aC" />
+	</task>
+</tarea>

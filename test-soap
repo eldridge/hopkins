@@ -1,0 +1,18 @@
+#!/usr/bin/perl
+
+use strict;
+
+use SOAP::Lite;
+use Data::Dumper;
+
+my $args		= { commit => 1, atomic => 0 };
+my $soap		= SOAP::Lite->uri('http://localhost:8080');
+my $proxy		= $soap->proxy('http://localhost:8080?session=rpc');
+my $response	= $proxy->enqueue('Greenspan::Job::Picklist', $args);
+
+if ($response->result) {
+	print "successfully enqueued job\n";
+} else {
+	print "failed to enqueue job\n";
+}
+
