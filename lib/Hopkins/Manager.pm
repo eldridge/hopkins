@@ -108,20 +108,14 @@ sub scheduler
 
 	Hopkins->log_debug('checking queue for tasks to post');
 
-	my $now		= DateTime->now;
-	my $schema	= Hopkins::Store->schema;
-	my $rsTask	= $schema->resultset('Task');
-
 	foreach my $name (Hopkins::Config->get_task_names) {
+		my $now		= DateTime->now;
 		my $task	= Hopkins::Config->get_task_info($name);
 		my $set		= $task->{schedules};
-		my $queue	= $task->{queue};
-		my $class	= $task->{class};
 		my $opts	= $task->{option};
-		my $cmd		= $task->{cmd};
 		my $serial	= $task->{run} eq 'serial' ? 1 : 0;
-		my $active	= lc $task->{active} eq 'no' ? 0 : 1;
 		my $last	= $set->previous($now);
+		my $active	= lc $task->{active} eq 'no' ? 0 : 1;
 
 		Hopkins->log_debug("checking if $name is marked inactive");
 		next if not $active;
@@ -132,16 +126,40 @@ sub scheduler
 		#Hopkins->log_debug("checking if $name is currently executing");
 		#next if $rsTask->task_executing_now($name) and $serial;
 
-		# post one of two enqueue events, depending on the type of job
-		Hopkins->log_debug("posting enqueue event for $name");
-		$kernel->post($queue => enqueue => undef => perl => $class => $opts) if $class;
-		$kernel->post($queue => enqueue => undef => exec => $cmd) if $cmd;
+		my $state = $kernel->call(manager => enqueue => $name => $opts);
 
-		# record the fact that we've queued this job
-		$rsTask->create({ name => $name, date_queued => $now });
+		Hopkins->log_error("failure in scheduler while attempting to enqueue $name")
+			if not $state;
 	}
 
 	$kernel->alarm(scheduler => time + $heap->{opts}->{poll});
+}
+
+sub enqueue
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+	my $name	= $_[ARG0];
+	my $opts	= $_[ARG1];
+
+	my $now		= DateTime->now;
+	my $schema	= Hopkins::Store->schema;
+	my $rsTask	= $schema->resultset('Task');
+
+	my $task	= Hopkins::Config->get_task_info($name);
+	my $class	= $task->{class};
+	my $queue	= $task->{queue};
+	my $cmd		= $task->{cmd};
+
+	# post one of two enqueue events, depending on the type of job
+	Hopkins->log_debug("posting enqueue event for $name");
+	$kernel->post("queue.$queue" => enqueue => undef => $name => perl => $class => $opts) if $class;
+	$kernel->post("queue.$queue" => enqueue => undef => $name => exec => $cmd) if $cmd;
+
+	# record the fact that we've queued this job
+	$rsTask->create({ name => $name, date_queued => $now });
+
+	return 1;
 }
 
 =back

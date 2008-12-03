@@ -141,6 +141,14 @@ sub get_task_info
 	return $config->{task}->{$task};
 }
 
+sub get_queue_info
+{
+	my $self = shift;
+	my $name = shift;
+
+	return $config->{queue}->{$name};
+}
+
 sub fetch
 {
 	my $self = shift;

@@ -1,0 +1,16 @@
+#!/usr/bin/perl
+
+use strict;
+
+use SOAP::Lite;
+use YAML 'Dump';
+
+my $name		= shift || die "usage: rpc-enqueue <queue name>\n";
+my $args		= { commit => 1, atomic => 0 };
+my $soap		= SOAP::Lite->uri('http://localhost:8080');
+my $proxy		= $soap->proxy('http://localhost:8080?session=rpc');
+my $response	= $proxy->queue_start($name);
+my $result		= $response->result;
+
+print Dump $result;
+

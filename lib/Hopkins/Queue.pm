@@ -35,18 +35,28 @@ sub init
 	# up to the manager session.
 
 	foreach my $name (Hopkins::Config->get_queue_names) {
-		my $queue = $heap->{config}->{queue}->{$name};
-
-		Hopkins->log_debug("creating queue with alias $name");
-
-		POE::Component::JobQueue->spawn
-		(
-			Alias		=> $name,
-			WorkerLimit	=> $queue->{concurrency},
-			Worker		=> \&spawn_worker,
-			Passive		=> { },
-		);
+		Hopkins::Queue->start($name);
 	}
+}
+
+sub start
+{
+	my $self	= shift;
+	my $name	= shift;
+
+	my $queue = Hopkins::Config->get_queue_info($name);
+
+	return 0 if not defined $queue;
+
+	Hopkins->log_debug("creating queue with alias $name");
+
+	POE::Component::JobQueue->spawn
+	(
+		Alias		=> "queue.$name",
+		WorkerLimit	=> $queue->{concurrency},
+		Worker		=> \&spawn_worker,
+		Passive		=> { },
+	);
 
 	# this passive queue will act as an on-demand task
 	# execution queue, waiting for enqueue events to be
@@ -76,6 +86,8 @@ sub init
 	#		AckState		=> \&job_completed
 	#	}
 	#);
+
+	return 1;
 }
 
 =item spawn_worker
@@ -85,6 +97,7 @@ sub init
 sub spawn_worker
 {
 	my $postback	= shift;
+	my $name		= shift;
 	my $method		= shift;
 	my $source		= shift;
 	my $params		= shift;
@@ -95,7 +108,25 @@ sub spawn_worker
 
 	my $queue = ($poe_kernel->alias_list())[0];
 
-	Hopkins::Worker->spawn($postback, $method, $source, $params, $queue);
+	Hopkins::Worker->spawn($postback, $name, $method, $source, $params, $queue);
+}
+
+sub fail
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+	my $alias	= $_[ARG0];
+
+	my ($name)	= ($alias =~ /^queue\.(.+)?/);
+	my $queue	= Hopkins::Config->get_queue_info($name);
+	my $msg		= "failure in $name queue";
+
+	if ($queue->{onerror} eq 'suspend') {
+		$msg .= '; suspending queue';
+		$kernel->post("queue.$name" => 'stop');
+	}
+
+	Hopkins->log_error($msg);
 }
 
 =back
@@ -105,8 +136,6 @@ sub spawn_worker
 Mike Eldridge <diz@cpan.org>
 
 =head1 LICENSE
-
-Copyright (c) 2008 Mike Eldridge.  All rights reserved.
 
 This program is free software; you may redistribute it
 and/or modify it under the same terms as Perl itself.

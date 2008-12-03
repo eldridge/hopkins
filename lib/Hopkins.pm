@@ -1,5 +1,10 @@
 package Hopkins;
 
+use strict;
+use warnings;
+
+our $VERSION = '0.01';
+
 =head1 NAME
 
 Hopkins - POE powered job management system
@@ -7,6 +12,8 @@ Hopkins - POE powered job management system
 =head1 DESCRIPTION
 
 =cut
+
+#sub POE::Kernel::TRACE_REFCNT () { 1 }
 
 use POE qw(Component::JobQueue Component::Server::SOAP Wheel::Run);
 
@@ -20,6 +27,7 @@ use Hopkins::RPC;
 
 sub POE::Component::Server::SOAP::DEBUG () { 0 }
 sub POE::Wheel::SocketFactory::DEBUG { 0 }
+sub POE::Kernel::alias { (shift->alias_list(@_))[0] }
 
 =head1 METHODS
 
@@ -87,14 +95,16 @@ sub new
 			confscan	=> \&Hopkins::Config::scan,
 			confload	=> \&Hopkins::Config::load,
 			queueinit	=> \&Hopkins::Queue::init,
+			queuefail	=> \&Hopkins::Queue::fail,
 			storeinit	=> \&Hopkins::Store::init,
 			rpcinit		=> \&Hopkins::RPC::init,
+			enqueue		=> \&Hopkins::Manager::enqueue,
 			postback	=> \&Hopkins::Manager::postback,
 			scheduler	=> \&Hopkins::Manager::scheduler,
 			shutdown	=> \&Hopkins::Manager::shutdown
 		},
 
-		args => $opts,
+		args => $opts
 	);
 
 	return $self;
@@ -124,12 +134,25 @@ sub get_logger
 {
 	my $self	= shift;
 	my $kernel	= shift || $poe_kernel;
-	my $alias	= ($kernel->alias_list())[0];
+	my $alias	= ($kernel->alias_list)[0];
 
-	if (not defined $loggers->{$alias}) {
+	if (not exists $loggers->{$alias}) {
 		$loggers->{$alias} = Log::Log4perl->get_logger("hopkins.$alias");
 	}
-	
+
+	return $loggers->{$alias};
+}
+
+sub get_worker_logger
+{
+	my $self	= shift;
+	my $name	= shift;
+	my $alias	= "task.$name";
+
+	if (not exists $loggers->{$alias}) {
+		$loggers->{$alias} = Log::Log4perl->get_logger("hopkins.$alias");
+	}
+
 	return $loggers->{$alias};
 }
 
@@ -138,6 +161,9 @@ sub log_info	{ return shift->get_logger->info(@_)	}
 sub log_warn	{ return shift->get_logger->warn(@_)	}
 sub log_error	{ return shift->get_logger->error(@_)	}
 sub log_fatal	{ return shift->get_logger->fatal(@_)	}
+
+sub log_worker_stdout { return shift->get_worker_logger(shift)->info(@_) }
+sub log_worker_stderr { return shift->get_worker_logger(shift)->warn(@_) }
 
 =head1 BUGS
 

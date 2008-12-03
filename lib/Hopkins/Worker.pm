@@ -33,13 +33,37 @@ sub spawn
 			_start		=> \&start,
 			_stop		=> \&stop,
 
-			stdout		=> \&output,
-			stderr		=> \&output,
-			error		=> \&error,
+			stdout		=> \&log_stdout,
+			stderr		=> \&log_stderr,
+			shutdown	=> \&shutdown,
+			done		=> \&done
 		},
 
 		args => [ @_ ]
 	);
+}
+
+=item closure
+
+=cut
+
+sub inline
+{
+	my $self	= shift;
+	my $source	= shift;
+	my $params	= shift;
+
+	return sub
+	{
+		Hopkins::Store->schema->storage->dbh->{InactiveDestroy} = 1;
+
+		eval "require $source";
+		die $@ if $@;
+
+		my $obj = new $source '', $params;
+
+		return $obj->run;
+	}
 }
 
 =item start
@@ -51,57 +75,85 @@ sub start
 	my $kernel		= $_[KERNEL];
 	my $heap		= $_[HEAP];
 	my $postback	= $_[ARG0];
-	my $method		= $_[ARG1];
-	my $source		= $_[ARG2];
-	my $params		= $_[ARG3];
-	my $queue		= $_[ARG4];
+	my $name		= $_[ARG1];
+	my $method		= $_[ARG2];
+	my $source		= $_[ARG3];
+	my $params		= $_[ARG4];
+	my $queue		= $_[ARG5];
 
-	Hopkins->log_debug("worker session created");
+	Hopkins->log_debug('worker session created');
 
 	# set the name of this session's alias based on the queue and session ID
-	my $session = $poe_kernel->get_active_session;
-	$kernel->alias_set(join '.', 'worker', $queue, $session->ID);
+	my $session = $kernel->get_active_session;
+	$kernel->alias_set(join '.', $queue, 'worker', $session->ID);
 
 	# determine the Program argument based upon what "method" we're using
 	my $program = $method eq 'perl'
-		? sub { require $source; my $obj = new $source '', $params; $obj->run }
+		? Hopkins::Worker->inline($source, $params)
 		: $source;
-	
+
 	# construct the arguments neccessary for POE::Wheel::Run
 	my %args =
 	(
 		Program		=> $program,
-		StderrEvent	=> 'stderr',
-		ErrorEvent	=> 'error',
-		StdoutEvent	=> 'stdout'
+		StdoutEvent	=> 'stdout',
+		StderrEvent	=> 'stderr'
 	);
+
+	$kernel->sig(CHLD => 'done');
 
 	# set a few session-specific things in the heap and then spawn the child
 	$heap->{postback}	= $postback;
 	$heap->{queue}		= $queue;
+	$heap->{name}		= $name;
 	$heap->{child}		= new POE::Wheel::Run %args;
 }
 
 sub stop
 {
-	my $heap = $_[HEAP];
-
-	Hopkins->log_debug('child exited');
-
-	$heap->{postback}->();
-}
-
-sub output { Hopkins->log_debug($_[ARG0]) }
-
-sub error
-{
+	my $kernel	= $_[KERNEL];
 	my $heap	= $_[HEAP];
-	my $op		= $_[ARG0];
-	my $err		= $_[ARG2];
 
-	Hopkins->log_warn('OH GOD!');
-
+	Hopkins->log_debug('session destroyed');
 }
+
+sub done
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+	my $signal	= $_[ARG0];
+	my $pid		= $_[ARG1];
+	my $status	= $_[ARG2];
+
+	Hopkins->log_debug("child process $pid exited with status $status");
+
+	if ($status == 0) {
+		Hopkins->log_info("worker successfully completed $heap->{name}");
+	} else {
+		Hopkins->log_error("worker exited abnormally ($status)");
+		$kernel->call(manager => queuefail => $heap->{queue});
+	}
+
+	$heap->{postback}->($pid, $status);
+	$kernel->yield('shutdown');
+}
+
+sub shutdown
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+
+	# we have to remove the session alias from the kernel,
+	# else POE will never destroy the session.
+
+	my $session	= $kernel->get_active_session;
+	my $alias	= join '.', $heap->{queue}, 'worker', $session->ID;
+
+	$kernel->alias_remove($alias);
+}
+
+sub log_stdout { Hopkins->log_worker_stdout($_[HEAP]->{name}, $_[ARG0]) }
+sub log_stderr { Hopkins->log_worker_stderr($_[HEAP]->{name}, $_[ARG0]) }
 
 =back
 
@@ -110,8 +162,6 @@ sub error
 Mike Eldridge <diz@cpan.org>
 
 =head1 LICENSE
-
-Copyright (c) 2008 Mike Eldridge.  All rights reserved.
 
 This program is free software; you may redistribute it
 and/or modify it under the same terms as Perl itself.

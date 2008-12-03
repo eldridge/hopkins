@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<tarea>
+<hopkins>
 	<database>
 		<!-- <dsn>dbi:mysql:database=hopkins;host=localhost</dsn> -->
 		<dsn>dbi:SQLite:dbname=/usr/src/hopkins/hopkins.db</dsn>
@@ -51,7 +51,7 @@
 
 	<task name="Charge" run="serial" active="yes">
 		<class>Greenspan::Job::Die</class>
-		<schedule>*/10 * * * *</schedule>
+		<schedule>*/2 * * * *</schedule>
 		<queue>orderproc</queue>
 	</task>
 
@@ -65,4 +65,4 @@
 		<option name="ftp_user" value="magazin" />
 		<option name="ftp_pass" value="5te2aC" />
 	</task>
-</tarea>
+</hopkins>

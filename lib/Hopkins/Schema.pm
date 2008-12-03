@@ -20,7 +20,7 @@ __PACKAGE__->load_namespaces(result_namespace => 'Row');
 
 =head1 AUTHOR
 
-Mike Eldridge <meldridge@magazines.com>
+Mike Eldridge <diz@cpan.org>
 
 =head1 LICENSE
 
