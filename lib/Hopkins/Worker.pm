@@ -25,7 +25,21 @@ use POE;
 
 sub spawn
 {
-	my $self = shift;
+	my $postback	= shift;
+	my $id			= shift;
+	my $name		= shift;
+	my $method		= shift;
+	my $source		= shift;
+	my $params		= shift;
+	my $queue		= shift;
+
+	Hopkins->log_debug("spawning worker: type=$method; source=$source");
+
+	my $now		= DateTime->now;
+	my $schema	= Hopkins::Store->schema;
+	my $rsTask	= $schema->resultset('Task');
+
+	$rsTask->find($id)->update({ date_started => $now });
 
 	POE::Session->create
 	(
@@ -39,7 +53,7 @@ sub spawn
 			done		=> \&done
 		},
 
-		args => [ @_ ]
+		args => [ $postback, $id, $name, $method, $source, $params, $queue ]
 	);
 }
 
@@ -75,17 +89,20 @@ sub start
 	my $kernel		= $_[KERNEL];
 	my $heap		= $_[HEAP];
 	my $postback	= $_[ARG0];
-	my $name		= $_[ARG1];
-	my $method		= $_[ARG2];
-	my $source		= $_[ARG3];
-	my $params		= $_[ARG4];
-	my $queue		= $_[ARG5];
+	my $id			= $_[ARG1];
+	my $name		= $_[ARG2];
+	my $method		= $_[ARG3];
+	my $source		= $_[ARG4];
+	my $params		= $_[ARG5];
+	my $queue		= $_[ARG6];
 
-	Hopkins->log_debug('worker session created');
+	$kernel->post('manager' => 'taskstart', $id);
 
 	# set the name of this session's alias based on the queue and session ID
 	my $session = $kernel->get_active_session;
 	$kernel->alias_set(join '.', $queue, 'worker', $session->ID);
+
+	Hopkins->log_debug('worker session created');
 
 	# determine the Program argument based upon what "method" we're using
 	my $program = $method eq 'perl'
@@ -125,12 +142,14 @@ sub done
 	my $pid		= $_[ARG1];
 	my $status	= $_[ARG2];
 
+	return if $pid != $heap->{child}->PID;
+
 	Hopkins->log_debug("child process $pid exited with status $status");
 
 	if ($status == 0) {
 		Hopkins->log_info("worker successfully completed $heap->{name}");
 	} else {
-		Hopkins->log_error("worker exited abnormally ($status)");
+		Hopkins->log_error("worker exited abnormally ($status) while executing $heap->{name}");
 		$kernel->call(manager => queuefail => $heap->{queue});
 	}
 

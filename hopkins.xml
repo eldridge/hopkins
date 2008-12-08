@@ -29,6 +29,16 @@
 	<role>manager</role>
 	<role>worker</role>
 
+	<task name="Wait5">
+		<class>Greenspan::Job::Wait5</class>
+		<queue>general</queue>
+	</task>
+
+	<task name="Wait30">
+		<class>Greenspan::Job::Wait30</class>
+		<queue>general</queue>
+	</task>
+
 	<task name="Test" run="serial">
 		<class>Greenspan::Job::Test</class>
 		<schedule>* * * * *</schedule>
@@ -64,5 +74,19 @@
 		<option name="ftp_host" value="ftp.nww.com" />
 		<option name="ftp_user" value="magazin" />
 		<option name="ftp_pass" value="5te2aC" />
+	</task>
+
+	<task name="SetRefresher">
+		<class>Greenspan::Job::SetRefresher</class>
+		<schedule>0 * * * *</schedule>
+	</task>
+
+	<task name="AS/400 Sync" run="serial" active="yes">
+		<class>Greenspan::Job::AS400::Sync::Authorization</class>
+		<schedule>0 7 * * *</schedule>
+		<queue>orderproc</queue>
+		<chain task="SetRefresher">
+			<option name="set" value="230" />
+		</chain>
 	</task>
 </hopkins>

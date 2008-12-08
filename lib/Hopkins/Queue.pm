@@ -35,11 +35,11 @@ sub init
 	# up to the manager session.
 
 	foreach my $name (Hopkins::Config->get_queue_names) {
-		Hopkins::Queue->start($name);
+		Hopkins::Queue->spawn($name);
 	}
 }
 
-sub start
+sub spawn
 {
 	my $self	= shift;
 	my $name	= shift;
@@ -48,14 +48,16 @@ sub start
 
 	return 0 if not defined $queue;
 
-	Hopkins->log_debug("creating queue with alias $name");
+	my $alias = "queue.$name";
+
+	Hopkins->log_debug("spawning queue $name");
 
 	POE::Component::JobQueue->spawn
 	(
-		Alias		=> "queue.$name",
+		Alias		=> $alias,
 		WorkerLimit	=> $queue->{concurrency},
-		Worker		=> \&spawn_worker,
-		Passive		=> { },
+		Worker		=> sub { Hopkins::Worker::spawn @_, $alias },
+		Passive		=> { Prioritizer => \&Hopkins::Queue::prioritize },
 	);
 
 	# this passive queue will act as an on-demand task
@@ -90,26 +92,32 @@ sub start
 	return 1;
 }
 
-=item spawn_worker
+=item prioritize
 
 =cut
 
-sub spawn_worker
+sub prioritize
 {
-	my $postback	= shift;
-	my $name		= shift;
-	my $method		= shift;
-	my $source		= shift;
-	my $params		= shift;
+	my $a = shift;
+	my $b = shift;
 
-	Hopkins->log_debug("received worker task enqueue notice");
-	Hopkins->log_debug("task is of type $method");
-	Hopkins->log_debug("source of work is $source");
+	my $aopts = $a->[5] || {};
+	my $bopts = $b->[4] || {};
 
-	my $queue = ($poe_kernel->alias_list())[0];
+	my $apri = $aopts->{priority} || 5;
+	my $bpri = $bopts->{priority} || 5;
 
-	Hopkins::Worker->spawn($postback, $name, $method, $source, $params, $queue);
+	$apri = 1 if $apri < 1;
+	$apri = 9 if $apri > 9;
+	$bpri = 1 if $bpri < 1;
+	$bpri = 9 if $bpri > 9;
+
+	return $apri <=> $bpri;
 }
+
+=item fail
+
+=cut
 
 sub fail
 {
@@ -122,11 +130,26 @@ sub fail
 	my $msg		= "failure in $name queue";
 
 	if ($queue->{onerror} eq 'suspend') {
-		$msg .= '; suspending queue';
+		$msg .= '; stopping queue';
 		$kernel->post("queue.$name" => 'stop');
 	}
 
 	Hopkins->log_error($msg);
+}
+
+=item is_running
+
+=cut
+
+sub is_running
+{
+	my $self = shift;
+	my $name = shift;
+
+	my $api			= new POE::API::Peek;
+	my @sessions	= map { POE::Kernel->alias($_) } $api->session_list;
+
+	return grep { "queue.$name" eq $_ } @sessions;
 }
 
 =back

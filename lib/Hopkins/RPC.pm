@@ -135,7 +135,14 @@ sub status
 	my $res		= $_[ARG0];
 	my $api		= new POE::API::Peek;
 
-	my @sessions	= map { $kernel->alias($_) } $api->session_list;
+	my @sessions = map { $kernel->alias($_) } $api->session_list;
+
+	my $now		= DateTime->now;
+	my $schema	= Hopkins::Store->schema;
+	my $rsTask	= $schema->resultset('Task');
+
+	$rsTask->search({ date_completed => undef });
+
 
 	$res->content({ sessions => \@sessions });
 

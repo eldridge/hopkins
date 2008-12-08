@@ -22,7 +22,10 @@ requires 'POE::Component::Server::SOAP'	=> '1.11';
 requires 'POE::Wheel::Run'				=> '1.2179';
 requires 'XML::Simple'					=> '2.18';
 
+build_requires 'Class::Accessor::Fast';
 build_requires 'Directory::Scratch';
+build_requires 'FindBin';
+build_requires 'Template';
 
 auto_install;
 WriteAll;

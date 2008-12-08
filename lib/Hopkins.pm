@@ -23,6 +23,7 @@ use Hopkins::Config;
 use Hopkins::Manager;
 use Hopkins::Store;
 use Hopkins::Queue;
+use Hopkins::State;
 use Hopkins::RPC;
 
 sub POE::Component::Server::SOAP::DEBUG () { 0 }
@@ -98,10 +99,11 @@ sub new
 			queuefail	=> \&Hopkins::Queue::fail,
 			storeinit	=> \&Hopkins::Store::init,
 			rpcinit		=> \&Hopkins::RPC::init,
-			enqueue		=> \&Hopkins::Manager::enqueue,
-			postback	=> \&Hopkins::Manager::postback,
 			scheduler	=> \&Hopkins::Manager::scheduler,
-			shutdown	=> \&Hopkins::Manager::shutdown
+			enqueue		=> \&Hopkins::Manager::enqueue,
+			taskstart	=> \&Hopkins::Manager::taskstart,
+			dequeue		=> \&Hopkins::Manager::dequeue,
+			shutdown	=> \&Hopkins::Manager::shutdown,
 		},
 
 		args => $opts
@@ -134,7 +136,9 @@ sub get_logger
 {
 	my $self	= shift;
 	my $kernel	= shift || $poe_kernel;
-	my $alias	= ($kernel->alias_list)[0];
+	my $alias	= $kernel->alias;
+
+	$alias = 'UNKNOWN' if not defined $alias;
 
 	if (not exists $loggers->{$alias}) {
 		$loggers->{$alias} = Log::Log4perl->get_logger("hopkins.$alias");

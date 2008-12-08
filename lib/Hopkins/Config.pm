@@ -23,6 +23,7 @@ use DateTime::Set;
 use XML::Simple;
 
 my $config;
+my $err;
 
 =head1 STATES
 
@@ -39,21 +40,12 @@ sub load
 
 	Hopkins->log_debug('loading XML configuration file');
 
-	my %xmlsopts =
-	(
-		KeyAttr			=> { option => 'name', queue => 'name', task => 'name' },
-		ValueAttr		=> [ 'value' ],
-		GroupTags		=> { options => 'option' },
-		SuppressEmpty	=> ''
-	);
-
+	my $ref	= Hopkins::Config->parse($heap->{opts}->{conf});
 	my $ok	= 1;
-	my $xs	= new XML::Simple %xmlsopts;
-	my $ref	= $xs->XMLin($heap->{opts}->{conf});
 
-	# flatten options attributes
-	if (my $href = $ref->{database}->{options}) {
-		$href->{$_} = $href->{$_}->{value} foreach keys %$href;
+	if (not defined $ref) {
+		Hopkins->log_error("error loading configuration file: $err");
+		return $config || exit;
 	}
 
 	use YAML;
@@ -110,6 +102,34 @@ sub load
 	} else {
 		Hopkins->log_error('errors in configuration, discarding new version');
 	}
+
+	return $config;
+}
+
+sub parse
+{
+	my $self = shift;
+	my $file = shift;
+
+	my %xmlsopts =
+	(
+		KeyAttr			=> { option => 'name', queue => 'name', task => 'name' },
+		ValueAttr		=> [ 'value' ],
+		GroupTags		=> { options => 'option' },
+		SuppressEmpty	=> ''
+	);
+
+	my $xs	= new XML::Simple %xmlsopts;
+	my $ref	= eval { $xs->XMLin($file) };
+
+	return undef if $err = $@;
+
+	# flatten options attributes
+	if (my $href = $ref->{database}->{options}) {
+		$href->{$_} = $href->{$_}->{value} foreach keys %$href;
+	}
+
+	return $ref;
 }
 
 sub scan
