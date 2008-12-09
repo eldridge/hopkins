@@ -39,12 +39,6 @@
 		<queue>general</queue>
 	</task>
 
-	<task name="Test" run="serial">
-		<class>Greenspan::Job::Test</class>
-		<schedule>* * * * *</schedule>
-		<queue>general</queue>
-	</task>
-
 	<task name="ProductImageRefresh" run="serial" active="no">
 		<class>Greenspan::Job::ProductImageRefresh</class>
 		<prereq>ImageFetcher</prereq>
@@ -59,7 +53,7 @@
 		<queue>general</queue>
 	</task>
 
-	<task name="Charge" run="serial" active="yes">
+	<task name="Charge" run="serial" active="no">
 		<class>Greenspan::Job::Die</class>
 		<schedule>*/2 * * * *</schedule>
 		<queue>orderproc</queue>
@@ -88,5 +82,12 @@
 		<chain task="SetRefresher">
 			<option name="set" value="230" />
 		</chain>
+	</task>
+
+	<task name="Site Monitor">
+		<class>Greenspan::Job::Monitor::HTTP</class>
+		<schedule>*/5 * * * *</schedule>
+		<queue>general</queue>
+		<option name="url" value="http://pulse/hadleigh" />
 	</task>
 </hopkins>

@@ -65,7 +65,7 @@ sub inline
 {
 	my $self	= shift;
 	my $source	= shift;
-	my $params	= shift;
+	my $params	= shift || {};
 
 	return sub
 	{
@@ -74,7 +74,7 @@ sub inline
 		eval "require $source";
 		die $@ if $@;
 
-		my $obj = new $source '', $params;
+		my $obj = $source->new({ options => $params });
 
 		return $obj->run;
 	}

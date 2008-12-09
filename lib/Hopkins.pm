@@ -26,9 +26,27 @@ use Hopkins::Queue;
 use Hopkins::State;
 use Hopkins::RPC;
 
-sub POE::Component::Server::SOAP::DEBUG () { 0 }
-sub POE::Wheel::SocketFactory::DEBUG { 0 }
-sub POE::Kernel::alias { (shift->alias_list(@_))[0] }
+# prevent perl from bitching and complaining about prototype
+# mismatches and constant subroutine redefinitions.  the
+# warnings pragma doesn't prevent ALL of them from spewing,
+# so we have to get raunchy with perl by defining them at
+# runtime with a localized no-op warn handler.
+
+{
+	local $SIG{__WARN__} = sub { 1 };
+
+	# forcefully disable the debugging in several of the POE
+	# components.  the maintainer of these packages laughed
+	# at me when i told him he was an idiot for handling his
+	# debugging this way.  now i'm forced to clean up after
+	# his shit on my own.
+
+	eval q/
+		sub POE::Component::Server::SOAP::DEBUG () { 0 }
+		sub POE::Wheel::SocketFactory::DEBUG { 0 }
+		sub POE::Kernel::alias { (shift->alias_list(@_))[0] }
+	/;
+}
 
 =head1 METHODS
 
@@ -123,10 +141,9 @@ sub run { POE::Kernel->run }
 
 =item get_logger
 
-returns a Log::Log4perl logger for the current session.
-the get_logger expects the POE kernel to be passed to
-it.  if no POE::Kernel is passed, it will default to
-$poe_kernel.
+returns a Log::Log4perl logger for the current session.  the
+get_logger expects the POE kernel to be passed to it.  if no
+POE::Kernel is passed, it will default to $poe_kernel.
 
 =cut
 
@@ -171,10 +188,10 @@ sub log_worker_stderr { return shift->get_worker_logger(shift)->warn(@_) }
 
 =head1 BUGS
 
-this is my first foray into POE territory.  the way
-the system is architected may be horribly inefficient,
-cause cancer, or otherwise be a general nuisance to
-its intended user(s).  my bad.
+this is my first foray into POE territory.  the way the
+system is architected may be horribly inefficient, cause
+cancer, or otherwise be a general nuisance to its intended
+user(s).  my bad.
 
 =head1 AUTHOR
 

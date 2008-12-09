@@ -48,9 +48,6 @@ sub load
 		return $config || exit;
 	}
 
-	use YAML;
-	print Dump $ref;
-
 	# process any cron-like schedules
 	foreach my $name (keys %{ $ref->{task} }) {
 		my $task = $ref->{task}->{$name};
