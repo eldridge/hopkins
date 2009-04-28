@@ -1,0 +1,31 @@
+--- 
+author: Mike Eldridge <diz@cpan.org>
+build_requires: 
+  Class::Accessor::Fast: 0
+  Directory::Scratch: 0
+  FindBin: 0
+  Template: 0
+distribution_type: module
+generated_by: Module::Install version 0.67
+license: perl
+meta-spec: 
+  url: http://module-build.sourceforge.net/META-spec-v1.3.html
+  version: 1.3
+name: Hopkins
+no_index: 
+  directory: 
+    - inc
+    - t
+requires: 
+  DBIx::Class: 0.08007
+  DateTime: 0.37
+  DateTime::Event::MultiCron: 0.01
+  DateTime::Set: 0.25
+  File::Monitor: 0.10
+  Log::Log4perl: 1.12
+  POE: 0.9999
+  POE::Component::JobQueue: 0.55
+  POE::Component::Server::SOAP: 1.11
+  POE::Wheel::Run: 1.2179
+  XML::Simple: 2.18
+version: 0.01
