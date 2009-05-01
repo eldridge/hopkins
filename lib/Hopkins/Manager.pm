@@ -15,11 +15,74 @@ session *IS* hopkins.
 =cut
 
 use POE;
+use Class::Accessor::Fast;
 use File::Monitor;
+
+use Hopkins::Store;
+use Hopkins::Config;
+use Hopkins::Queue;
+use Hopkins::State;
+
+use Hopkins::Constants;
+
+use base 'Class::Accessor::Fast';
+
+__PACKAGE__->mk_accessors(qw(conf l4pconf scan poll));
 
 =head1 STATES
 
 =over 4
+
+=item new
+
+=cut
+
+sub new
+{
+	my $proto	= shift->SUPER::new(@_);
+	my $hopkins	= shift;
+
+	# create the POE Session that will be the bread and butter
+	# of the job daemon's normal function.  the manager session
+	# will read the configuration upon execution and will begin
+	# the rest of the startup process in the following order:
+	#
+	#	- storage initialization via DBIx::Class
+	#	- queue creation via POE::Component::JobQueue
+	#	- RPC session creation via POE::Component::Server::SOAP
+
+	# create manager session
+	POE::Session->create
+	(
+		inline_states => {
+			_start			=> \&start,
+			_stop			=> \&stop,
+
+			config_scan		=> \&config_scan,
+			config_load		=> \&config_load,
+
+			init_config		=> \&init_config,
+			init_queues		=> \&init_queues,
+			init_plugins	=> \&init_plugins,
+			init_store		=> \&init_store,
+			init_state		=> \&init_state,
+
+			queue_start		=> \&queue_start,
+			queue_failure	=> \&queue_failure,
+
+			scheduler		=> \&scheduler,
+			enqueue			=> \&enqueue,
+			taskstart		=> \&taskstart,
+			dequeue			=> \&dequeue,
+
+			shutdown		=> \&shutdown
+		},
+
+		args => [ $hopkins ]
+	);
+
+	return bless {}, ref $proto || $proto;
+}
 
 =item start
 
@@ -29,38 +92,35 @@ sub start
 {
 	my $kernel	= $_[KERNEL];
 	my $heap	= $_[HEAP];
-	my $opts	= $_[ARG0];
+	my $hopkins	= $_[ARG0];
 
-	# save our options for future use
-	$heap->{opts} = $opts;
+	use Data::Dumper;
+	print Dumper($hopkins);
+
+	# a little initialization:
+	#
+	# save the Hopkins object for future use (mostly for
+	# accessing the values of any command-line switches).
+	# also initialize the list of plugins and queues.  oh,
+	# yeah, get our Ps and Qs in order...
+
+	$heap->{hopkins} = $hopkins;
+	$heap->{plugins} = {};
 
 	# set the alias for the current session
 	$kernel->alias_set('manager');
-
-	# create a new state object for keeping up with ourself
-	$heap->{state} = new Hopkins::State;
 
 	# create a File::Monitor object, a callback, and an
 	# associated POE alarm to watch the configuration file
 	# for subsequent changes
 
-	my $callback = sub {
-		Hopkins->log_info('configuration file changed');
-		$kernel->post(manager => 'confload')
-	};
-
-	$heap->{confmon} = new File::Monitor;
-	$heap->{confmon}->watch($opts->{conf}, $callback);
-
-	$kernel->alarm(confscan => time + $opts->{scan});
-
 	# post events for initial setup
-	$kernel->post(manager => 'confload');	# configuration file
-	$kernel->post(manager => 'storeinit');	# database schema
-	$kernel->post(manager => 'queueinit');	# scheduler and worker
-	$kernel->post(manager => 'rpcinit');	# RPC session
+	$kernel->call(manager => 'init_config');	# configuration file
+	$kernel->post(manager => 'init_state');		# machine state session
+	$kernel->post(manager => 'init_store');		# database storage sessage
+	$kernel->post(manager => 'init_queues');	# worker queue sessions
 
-	$kernel->alarm(scheduler => time + $opts->{poll});
+	$kernel->alarm(scheduler => time + $hopkins->poll);
 }
 
 =item stop
@@ -72,7 +132,163 @@ sub stop
 	Hopkins->log_debug('manager exiting');
 }
 
-=item manager_shutdown
+=item init_queues
+
+=cut
+
+sub init_queues
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+	my $config	= $heap->{config};
+
+	# create a passive queue for each configured queue.  we
+	# use POE::Component::JobQueue and leave the scheduling
+	# up to the manager session.
+
+	foreach my $name ($config->get_queue_names) {
+		$kernel->post(queue_start => $name);
+	}
+}
+
+sub queue_start
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+	my $name	= $_[ARG0];
+	my $config	= $heap->{config};
+
+	return HOPKINS_QUEUE_ALREADY_RUNNING if exists $heap->{queues}->{$name};
+
+	if (my $opts = $config->get_queue_info($name)) {
+		$heap->{queues}->{$name} = new Hopkins::Queue $opts;
+	} else {
+		return HOPKINS_QUEUE_NOT_FOUND;
+	}
+
+	return HOPKINS_QUEUE_STARTED;
+}
+
+=item init_store
+
+=cut
+
+sub init_store
+{
+	new Hopkins::Store;
+}
+
+=item init_state
+
+=cut
+
+sub init_state
+{
+	new Hopkins::State;
+}
+
+=item init_config
+
+=cut
+
+sub init_config
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+
+	$heap->{config} = new Hopkins::Config { file => $heap->{hopkins}->conf };
+
+	$kernel->call(manager => 'config_load');
+	$kernel->alarm(confscan => time + $heap->{hopkins}->scan);
+}
+
+=item init_plugins
+
+=cut
+
+sub init_plugins
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+
+	Hopkins->log_debug('initializing plugins');
+
+	my $config	= $heap->{config};
+	my $plugins	= $heap->{plugins};
+
+	delete $plugins->{$_}
+		foreach grep { not $config->has_plugin($_) } keys %$plugins;
+
+	foreach my $name ($config->get_plugin_names) {
+		if (not exists $plugins->{$name}) {
+			my $package = $name =~ /^\+/ ? $name : "Hopkins::Plugin::$name";
+			my $path	= $package;
+
+			$path =~ s{::}{/}g;
+
+			require "$path.pm";
+
+			$plugins->{$name} = $package->new($config->get_plugin_info($name));
+		}
+	}
+}
+
+=item config_load
+
+=cut
+
+sub config_load
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+
+	my $config	= $heap->{config};
+	my $status	= $config->load;
+
+	if (not $status->ok) {
+		Hopkins->log_error('errors in configuration, unable to continue');
+
+		$kernel->post(manager => 'shutdown');
+	}
+
+	if ($status->failed) {
+		my $err = $status->parsed
+			? 'errors in configuration, discarding new version'
+			: 'unable to load configuration file: ' . $status->errmsg;
+
+		Hopkins->log_error($err);
+	}
+
+	return unless $status->updated;
+
+	if ($status->store_modified) {
+		Hopkins->log_debug('database information changed');
+		$kernel->post(manager => 'init_store');
+	}
+
+	$kernel->post(manager => 'init_plugins');
+}
+
+=item config_scan
+
+=cut
+
+sub config_scan
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+
+	print "WHAT THE FUCK MAN\n";
+
+	if ($heap->{config}->scan) {
+		Hopkins->log_info('configuration file changed');
+		$kernel->post(manager => 'confload')
+	}
+
+	$kernel->alarm(confscan => time + $heap->{hopkins}->scan);
+}
+
+=item shutdown
 
 =cut
 
@@ -80,10 +296,14 @@ sub shutdown
 {
 	my $kernel	= $_[KERNEL];
 	my $heap	= $_[HEAP];
+	my $config	= $heap->{config};
 
 	Hopkins->log_info('received shutdown request');
 
-	foreach my $name (Hopkins::Config->get_queue_names) {
+	$kernel->alarm('scheduler');
+	$kernel->alarm('confscan');
+
+	foreach my $name ($config->get_queue_names) {
 		Hopkins->log_debug("posting stop event for $name queue");
 		$kernel->post($name => 'stop');
 	}
@@ -97,12 +317,14 @@ sub scheduler
 {
 	my $kernel	= $_[KERNEL];
 	my $heap	= $_[HEAP];
+	my $config	= $heap->{config};
+	my $hopkins	= $heap->{hopkins};
 
 	Hopkins->log_debug('checking queue for tasks to post');
 
-	foreach my $name (Hopkins::Config->get_task_names) {
+	foreach my $name ($config->get_task_names) {
 		my $now		= DateTime->now;
-		my $task	= Hopkins::Config->get_task_info($name);
+		my $task	= $config->get_task_info($name);
 		my $set		= $task->{schedules};
 
 		next if not defined $set;
@@ -127,7 +349,7 @@ sub scheduler
 			if not $state;
 	}
 
-	$kernel->alarm(scheduler => time + $heap->{opts}->{poll});
+	$kernel->alarm(scheduler => time + $hopkins->poll);
 }
 
 =item enqueue
@@ -149,30 +371,29 @@ sub enqueue
 	my $heap	= $_[HEAP];
 	my $name	= $_[ARG0];
 	my $opts	= $_[ARG1];
+	my $config	= $heap->{config};
 
-	my $now		= DateTime->now;
-	my $state	= $heap->{state};
-	my $schema	= Hopkins::Store->schema;
-	my $rsTask	= $schema->resultset('Task');
+	my $task = $config->get_task_info($name);
 
-	my $task	= Hopkins::Config->get_task_info($name);
+	return HOPKINS_ENQUEUE_TASK_NOT_FOUND if not defined $task;
+
 	my $class	= $task->{class};
 	my $queue	= $task->{queue};
 	my $cmd		= $task->{cmd};
 
 	if (not Hopkins::Queue->is_running($queue)) {
 		Hopkins->log_warn("unable to enqueue $name; queue not running");
-		return 0;
+		return HOPKINS_ENQUEUE_QUEUE_UNAVAILABLE;
 	}
 
-	# create an associated Task row for tracking this task
-	# throughout its lifetime.  insert that task object into
-	# the local state tracker.
+	# notify the state tracker that we're going to enqueue
+	# a task.  the state tracker will return an identifier
+	# that will be used to identify it throughout its life.
 
-	my $task	= $rsTask->create({ name => $name, queue => $queue, date_queued => $now });
-	my $id		= $task->id;
+	#my $id = $kernel->call(state => 'record_task_enqueue', $name, $queue);
 
-	$state->task_insert($task);
+	my $task	= new Hopkins::Task { queue => $queue };
+	my $id		= $kernel->call(state => task_enqueued => $task);
 
 	# post one of two enqueue events, depending on whether
 	# the task has an associated class name or an explicit
@@ -180,13 +401,36 @@ sub enqueue
 
 	Hopkins->log_debug("posting enqueue event for $name ($id)");
 
-	my @args	= ("queue.$queue", 'enqueue', 'dequeue', $task->id, $name);
+	my @args	= ("queue.$queue", 'enqueue', 'dequeue', $id, $name);
 	my $res		= undef;
 
 	$kernel->post(@args, 'perl', $class, $opts)	if $class;
 	$kernel->post(@args, 'exec', $cmd)			if $cmd;
 
-	return 1;
+	return HOPKINS_ENQUEUE_OK;
+}
+
+=item queue_fail
+
+=cut
+
+sub queue_fail
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+	my $alias	= $_[ARG0];
+	my $config	= $heap->{config};
+
+	my ($name)	= ($alias =~ /^queue\.(.+)?/);
+	my $queue	= $config->get_queue_info($name);
+	my $msg		= "failure in $name queue";
+
+	if ($queue->{onerror} eq 'halt') {
+		$msg .= '; halting queue';
+		$kernel->post("queue.$name" => 'stop');
+	}
+
+	Hopkins->log_error($msg);
 }
 
 sub dequeue
@@ -199,15 +443,16 @@ sub dequeue
 
 	Hopkins->log_debug("received dequeue event for $name ($id)");
 
-	my $now		= DateTime->now;
-	my $state	= $heap->{state};
-	my $schema	= Hopkins::Store->schema;
-	my $rsTask	= $schema->resultset('Task');
-	my $task	= $rsTask->find($id);
+	#my $now		= DateTime->now;
+	#my $state	= $heap->{state};
+	#my $schema	= Hopkins::Store->schema;
+	#my $rsTask	= $schema->resultset('Task');
+	#my $task	= $rsTask->find($id);
 
-	$state->task_remove($task);
-	$task->date_completed($now);
-	$task->update;
+	$kernel->call(state => task_completed => $id);
+
+	#$task->date_completed($now);
+	#$task->update;
 
 	#my $task	= Hopkins::Config->get_task_info($task->name);
 }
@@ -218,12 +463,7 @@ sub taskstart
 	my $heap	= $_[HEAP];
 	my $id		= $_[ARG0];
 
-	my $state	= $heap->{state};
-	my $schema	= Hopkins::Store->schema;
-	my $rsTask	= $schema->resultset('Task');
-	my $task	= $rsTask->find($id);
-
-	$state->task_update($task, status => 'running');
+	$kernel->post(store => 'notify', 'task_update', $id, status => 'running');
 }
 
 =back

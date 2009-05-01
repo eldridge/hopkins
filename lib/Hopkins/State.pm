@@ -1,6 +1,7 @@
 package Hopkins::State;
 
 use strict;
+use warnings;
 
 =head1 NAME
 
@@ -16,11 +17,16 @@ may access this information.
 
 =cut
 
+use POE;
+
 use Class::Accessor::Fast;
+use Data::UUID;
 
 use base 'Class::Accessor::Fast';
 
 __PACKAGE__->mk_accessors(qw(tasks));
+
+my $ug = new Data::UUID;
 
 sub new
 {
@@ -28,43 +34,69 @@ sub new
 
 	$self->tasks({});
 
+	POE::Session->create
+	(
+		inline_states =>
+		{
+			_start  => \&start,
+			_stop   => \&stop,
+
+			task_enqueued	=> \&task_enqueued,
+			task_stored		=> \&task_stored,
+			task_completed	=> \&task_completed
+		},
+
+		args => [ $self ]
+	);
+
 	return $self;
 }
 
-sub task_insert
+sub start
 {
-	my $self = shift;
-	my $task = shift;
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+	my $state	= $_[ARG0];
 
-	my $queue	= $task->queue;
-	my $id		= $task->id;
-	my $href	= { status => 'queued', task => $task };
-
-	$self->tasks->{$queue}->{$id} = $href;
+	$heap->{state} = $state;
 }
 
-sub task_update
+sub stop
 {
-	my $self	= shift;
-	my $task	= shift;
-	my $key		= shift;
-	my $val		= shift;
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+	my $state	= $_[ARG0];
 
-	my $queue	= $task->queue;
-	my $id		= $task->id;
-
-	$self->tasks->{$queue}->{$id}->{$key} = $val;
+	#Hopkins->log_debug('state exiting');
 }
 
-sub task_remove
+sub task_enqueued
 {
-	my $self = shift;
-	my $task = shift;
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+	my $task	= $_[ARG0];
+	my $state	= $heap->{state};
 
-	my $queue	= shift;
-	my $id		= shift;
+	$task->id($ug->create);
 
-	delete $self->tasks->{$queue}->{$id};
+	$state->tasks->{$task->id} = $task;
+
+	return $task->id;
+}
+
+sub task_stored
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+	my $id		= $_[ARG0];
+	my $row		= $_[ARG1];
+	my $state	= $heap->{state};
+
+	$state->tasks->{$id}->row($row);
+}
+
+sub task_completed
+{
 }
 
 =back

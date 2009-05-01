@@ -3,6 +3,8 @@ use Test::More tests => 13;
 use strict;
 use warnings;
 
+use lib 't/lib';
+
 use TestEnvironment;
 use Test::MockObject;
 use Test::MockObject::Extends;

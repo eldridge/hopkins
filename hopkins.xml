@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <hopkins>
+	<plugin name="HMI">
+		<port>8088</port>
+	</plugin>
+
+	<plugin name="RPC">
+		<port>8080</port>
+	</plugin>
+
 	<database>
 		<!-- <dsn>dbi:mysql:database=hopkins;host=localhost</dsn> -->
 		<dsn>dbi:SQLite:dbname=/usr/src/hopkins/hopkins.db</dsn>
@@ -18,11 +26,11 @@
 		<concurrency>16</concurrency>
 	</queue>
 
-	<queue name="orderproc" onerror="suspend">
+	<queue name="orderproc" onerror="halt" onfatal="halt">
 		<concurrency>1</concurrency>
 	</queue>
 
-	<queue name="imageproc" onerror="suspend">
+	<queue name="imageproc" onerror="halt">
 		<concurrency>1</concurrency>
 	</queue>
 
@@ -34,7 +42,7 @@
 		<queue>general</queue>
 	</task>
 
-	<task name="Wait30">
+	<task name="Wait30" onerror="suspend">
 		<class>Greenspan::Job::Wait30</class>
 		<queue>general</queue>
 	</task>

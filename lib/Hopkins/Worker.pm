@@ -23,8 +23,9 @@ use POE;
 
 =cut
 
-sub spawn
+sub new
 {
+	my $proto		= shift;
 	my $postback	= shift;
 	my $id			= shift;
 	my $name		= shift;

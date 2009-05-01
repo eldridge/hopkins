@@ -25,6 +25,14 @@ __PACKAGE__->add_columns(
 		is_foreign_key		=> 0,
 		extra				=> { unsigned => 1 }
 	},
+	id_queue => {
+		data_type			=> 'bigint',
+		size				=> 20,
+		is_nullable			=> 0,
+		default_value		=> undef,
+		is_auto_increment	=> 0,
+		is_foreign_key		=> 1
+	},
 	name => {
 		data_type			=> 'varchar',
 		size				=> 255,
@@ -33,15 +41,23 @@ __PACKAGE__->add_columns(
 		is_auto_increment	=> 0,
 		is_foreign_key		=> 0
 	},
-	queue => {
-		data_type			=> 'varchar',
-		size				=> 255,
+	id_queue => {
+		data_type			=> 'bigint',
+		size				=> 20,
+		is_nullable			=> 0,
+		default_value		=> undef,
+		is_auto_increment	=> 0,
+		is_foreign_key		=> 1
+	},
+	date_queued => {
+		data_type			=> 'datetime',
+		size				=> 0,
 		is_nullable			=> 0,
 		default_value		=> undef,
 		is_auto_increment	=> 0,
 		is_foreign_key		=> 0
 	},
-	date_queued => {
+	date_to_execute => {
 		data_type			=> 'datetime',
 		size				=> 0,
 		is_nullable			=> 0,
@@ -53,7 +69,7 @@ __PACKAGE__->add_columns(
 		data_type			=> 'datetime',
 		size				=> 0,
 		is_nullable			=> 1,
-		default_value		=> undef,
+		default_value		=> 'NULL',
 		is_auto_increment	=> 0,
 		is_foreign_key		=> 0
 	},
@@ -61,14 +77,23 @@ __PACKAGE__->add_columns(
 		data_type			=> 'datetime',
 		size				=> 0,
 		is_nullable			=> 1,
-		default_value		=> undef,
+		default_value		=> 'NULL',
 		is_auto_increment	=> 0,
 		is_foreign_key		=> 0
 	}
 );
 __PACKAGE__->set_primary_key('id');
 
+__PACKAGE__->add_relationship('queue', 'Hopkins::Schema::Row::Queue',
+	{ 'foreign.id'	=> 'self.id_queue'	},
+	{ 'accessor'	=> 'single'			}
+);
+
 __PACKAGE__->inflate_column('date_queued', {
+    inflate => sub { DateTime::Format::ISO8601->parse_datetime(shift) },
+    deflate => sub { shift->iso8601 }
+});
+__PACKAGE__->inflate_column('date_to_execute', {
     inflate => sub { DateTime::Format::ISO8601->parse_datetime(shift) },
     deflate => sub { shift->iso8601 }
 });

@@ -5,15 +5,11 @@ use warnings;
 
 =head1 NAME
 
-TestManager
+TestEnvironment
 
 =head1 DESCRIPTION
 
-TestManager is an interface that, among other things, makes
-using Test::More with fork()ing tests operate as expected.
-in addition, TestManager provides a try() method that will
-wrap code inside of an eval, calling diag() if the tried
-code fails.
+TestEnvironment for hopkins
 
 =cut
 

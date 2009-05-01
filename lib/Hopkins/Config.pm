@@ -1,6 +1,7 @@
 package Hopkins::Config;
 
 use strict;
+use warnings;
 
 =head1 NAME
 
@@ -22,12 +23,31 @@ use DateTime::Event::MultiCron;
 use DateTime::Set;
 use XML::Simple;
 
-my $config;
-my $err;
+use Hopkins::Config::Status;
 
-=head1 STATES
+use Class::Accessor::Fast;
+
+use base 'Class::Accessor::Fast';
+
+__PACKAGE__->mk_accessors(qw(config file monitor));
+
+=head1 METHODS
 
 =over 4
+
+=item new
+
+=cut
+
+sub new
+{
+	my $self = shift->SUPER::new(@_);
+
+	$self->monitor(new File::Monitor);
+	$self->monitor->watch($self->file);
+
+	return $self;
+}
 
 =item load
 
@@ -35,45 +55,52 @@ my $err;
 
 sub load
 {
-	my $kernel	= $_[KERNEL];
-	my $heap	= $_[HEAP];
+	my $self = shift;
 
 	Hopkins->log_debug('loading XML configuration file');
 
-	my $ref	= Hopkins::Config->parse($heap->{opts}->{conf});
-	my $ok	= 1;
+	my $status = new Hopkins::Config::Status;
+	my $config = $self->parse($self->file, $status);
 
-	if (not defined $ref) {
-		Hopkins->log_error("error loading configuration file: $err");
-		return $config || exit;
+	# if we have an existing configuration, then we will be
+	# fine.  we won't overwrite the existing configuration
+	# with a broken one, so no error condition will exist.
+
+	$status->ok($self->config ? 1 : 0);
+
+	if (not defined $config) {
+		$status->failed(1);
+		$status->parsed(0);
+
+		return $status;
 	}
 
+	$status->parsed(1);
+
 	# process any cron-like schedules
-	foreach my $name (keys %{ $ref->{task} }) {
-		my $task = $ref->{task}->{$name};
+	foreach my $name (keys %{ $config->{task} }) {
+		my $task = $config->{task}->{$name};
 		my $node = $task->{schedule};
 
 		next if not defined $node;
 
 		if (!($task->{class} || $task->{cmd})) {
 			Hopkins->log_error("task $name lacks a class or command line");
-			$ok = 0;
+			$status->failed(1);
 		}
 
 		my @a	= ref($node) eq 'ARRAY' ? @$node : ($node);
 		my $set	= DateTime::Event::MultiCron->from_multicron(@a);
 
-		$ref->{task}->{$name}->{schedules} = $set;
+		$config->{task}->{$name}->{schedules} = $set;
 	}
 
-	# if we already have a schema object, check to see if
-	# the new configuration sports a modified database
-	# configuration.  if it does, we want to reinitialize
-	# the backend
+	# check to see if the new configuration includes a
+	# modified database configuration.
 
-	if ($heap->{schema}) {
-		my @a = @{ $heap->{schema}->storage->connect_info };
-		my @b = map { $ref->{database}->{$_} } qw(dsn user pass options);
+	if (my $href = $self->config && $self->config->{database}) {
+		my @a = map { $href->{$_} || '' } qw(dsn user pass options);
+		my @b = map { $config->{database}->{$_} } qw(dsn user pass options);
 
 		# replace the options hashref (very last element in
 		# the array) with a flattened representation
@@ -88,66 +115,78 @@ sub load
 
 		local $" = $;;
 
-		if ("@a" ne "@b") {
-			Hopkins->log_debug('database information changed');
-			$kernel->post(manager => 'storeinit') if $ok;
-		}
+		$status->store_modified("@a" ne "@b");
 	}
 
-	if ($ok) {
-		$config = $ref;
-	} else {
-		Hopkins->log_error('errors in configuration, discarding new version');
+	if (not $status->failed) {
+		$self->config($config);
+		$status->updated(1);
+		$status->ok(1);
 	}
 
-	return $config;
+	return $status;
 }
 
 sub parse
 {
-	my $self = shift;
-	my $file = shift;
+	my $self	= shift;
+	my $file	= shift;
+	my $status	= shift;
 
 	my %xmlsopts =
 	(
-		KeyAttr			=> { option => 'name', queue => 'name', task => 'name' },
 		ValueAttr		=> [ 'value' ],
 		GroupTags		=> { options => 'option' },
-		SuppressEmpty	=> ''
+		SuppressEmpty	=> '',
+		ForceArray		=> [ 'plugin', 'queue', 'task' ],
+		KeyAttr			=>
+		{
+			plugin	=> 'name',
+			option	=> 'name',
+			queue	=> 'name',
+			task	=> 'name'
+		}
 	);
 
 	my $xs	= new XML::Simple %xmlsopts;
 	my $ref	= eval { $xs->XMLin($file) };
 
-	return undef if $err = $@;
+	if (my $err = $@) {
+		$status->errmsg($err);
+
+		return undef;
+	}
 
 	# flatten options attributes
 	if (my $href = $ref->{database}->{options}) {
 		$href->{$_} = $href->{$_}->{value} foreach keys %$href;
 	}
 
+#use YAML;
+#	print Dump($ref);
+
 	return $ref;
 }
 
 sub scan
 {
-	my $kernel	= $_[KERNEL];
-	my $heap	= $_[HEAP];
+	my $self = shift;
 
-	#Hopkins->log_debug('scanning configuration file');
-
-	$heap->{confmon}->scan;
-	$kernel->alarm(confscan => time + $heap->{opts}->{scan});
+	return $self->monitor->scan;
 }
 
 sub get_queue_names
 {
-	return keys %{ $config->{queue} };
+	my $self = shift;
+
+	return keys %{ $self->config->{queue} };
 }
 
 sub get_task_names
 {
-	return keys %{ $config->{task} };
+	my $self = shift;
+
+	return keys %{ $self->config->{task} };
 }
 
 sub get_task_info
@@ -155,7 +194,7 @@ sub get_task_info
 	my $self = shift;
 	my $task = shift;
 
-	return $config->{task}->{$task};
+	return $self->config->{task}->{$task};
 }
 
 sub get_queue_info
@@ -163,7 +202,30 @@ sub get_queue_info
 	my $self = shift;
 	my $name = shift;
 
-	return $config->{queue}->{$name};
+	return { name => $name, %{ $self->config->{queue}->{$name} } };
+}
+
+sub get_plugin_names
+{
+	my $self = shift;
+
+	return keys %{ $self->config->{plugin} };
+}
+
+sub get_plugin_info
+{
+	my $self = shift;
+	my $name = shift;
+
+	return $self->config->{plugin}->{$name};
+}
+
+sub has_plugin
+{
+	my $self = shift;
+	my $name = shift;
+
+	return exists $self->config->{plugin}->{$name} ? 1 : 0;
 }
 
 sub fetch
@@ -173,7 +235,7 @@ sub fetch
 
 	$path =~ s/^\/+//;
 
-	my $ref = $config;
+	my $ref = $self->config;
 
 	foreach my $spec (split '/', $path) {
 		for (ref($ref)) {

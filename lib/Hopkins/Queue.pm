@@ -16,47 +16,38 @@ each configured hopkins queue.
 
 use POE;
 
+use Class::Accessor::Fast;
+
 use Hopkins::Worker;
+
+use base 'Class::Accessor::Fast';
+
+__PACKAGE__->mk_accessors(qw(name onerror onfatal concurrency));
 
 =head1 STATES
 
 =over 4
 
-=item init
+=item new
 
 =cut
 
-sub init
+sub new
 {
-	my $heap = $_[HEAP];
+	my $self = shift->SUPER::new(@_);
 
-	# create a passive queue for each configured queue.  we
-	# use POE::Component::JobQueue and leave the scheduling
-	# up to the manager session.
+use YAML;
+print Dump($self);
 
-	foreach my $name (Hopkins::Config->get_queue_names) {
-		Hopkins::Queue->spawn($name);
-	}
-}
+	my $alias = 'queue.' . $self->name;
 
-sub spawn
-{
-	my $self	= shift;
-	my $name	= shift;
-
-	my $queue = Hopkins::Config->get_queue_info($name);
-
-	return 0 if not defined $queue;
-
-	my $alias = "queue.$name";
-
-	Hopkins->log_debug("spawning queue $name");
+	Hopkins->log_debug('spawning queue ' . $self->name);
 
 	POE::Component::JobQueue->spawn
 	(
 		Alias		=> $alias,
-		WorkerLimit	=> $queue->{concurrency},
-		Worker		=> sub { Hopkins::Worker::spawn @_, $alias },
+		WorkerLimit	=> $self->concurrency,
+		Worker		=> sub { new Hopkins::Worker @_, $alias },
 		Passive		=> { Prioritizer => \&Hopkins::Queue::prioritize },
 	);
 
@@ -89,7 +80,7 @@ sub spawn
 	#	}
 	#);
 
-	return 1;
+	return $self;
 }
 
 =item prioritize
@@ -115,28 +106,6 @@ sub prioritize
 	return $apri <=> $bpri;
 }
 
-=item fail
-
-=cut
-
-sub fail
-{
-	my $kernel	= $_[KERNEL];
-	my $heap	= $_[HEAP];
-	my $alias	= $_[ARG0];
-
-	my ($name)	= ($alias =~ /^queue\.(.+)?/);
-	my $queue	= Hopkins::Config->get_queue_info($name);
-	my $msg		= "failure in $name queue";
-
-	if ($queue->{onerror} eq 'suspend') {
-		$msg .= '; stopping queue';
-		$kernel->post("queue.$name" => 'stop');
-	}
-
-	Hopkins->log_error($msg);
-}
-
 =item is_running
 
 =cut
@@ -146,10 +115,7 @@ sub is_running
 	my $self = shift;
 	my $name = shift;
 
-	my $api			= new POE::API::Peek;
-	my @sessions	= map { POE::Kernel->alias($_) } $api->session_list;
-
-	return grep { "queue.$name" eq $_ } @sessions;
+	return Hopkins->is_session_active("queue.$name");
 }
 
 =back

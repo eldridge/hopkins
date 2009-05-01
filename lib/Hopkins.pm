@@ -17,14 +17,18 @@ Hopkins - POE powered job management system
 
 use POE qw(Component::JobQueue Component::Server::SOAP Wheel::Run);
 
-use Log::Log4perl;
+use POE::API::Peek;
 
-use Hopkins::Config;
+use Class::Accessor::Fast;
+
+use Log::Log4perl;
+use Log::Log4perl::Level;
+
 use Hopkins::Manager;
-use Hopkins::Store;
-use Hopkins::Queue;
-use Hopkins::State;
-use Hopkins::RPC;
+
+use base 'Class::Accessor::Fast';
+
+__PACKAGE__->mk_accessors(qw(conf l4pconf scan poll manager));
 
 # prevent perl from bitching and complaining about prototype
 # mismatches and constant subroutine redefinitions.  the
@@ -80,52 +84,47 @@ scheduler poll resolution (in seconds)
 sub new
 {
 	my $proto	= shift;
-	my $class	= ref($proto) || $proto;
-	my $opts	= { @_ };
+	my $opts	= shift;
 
 	# defaults
+
 	$opts->{conf}		||= '/etc/hopkins/hopkins.xml';
 	$opts->{lp4conf}	||= '/etc/hopkins/log4perl.conf';
 	$opts->{scan}		||= 30;
 	$opts->{poll}		||= 30;
 
-	# initialize log4perl
-	Log::Log4perl::init_and_watch($opts->{l4pconf}, $opts->{scan});
+	# make me majikal wif ur holy waterz.  plzkthx.
 
-	# bless me, father.  make me magical.
-	my $self = bless {}, $class;
+	my $self = $proto->SUPER::new($opts);
 
-	# create the POE Session that will be the bread and butter
-	# of the job daemon's normal function.  the manager session
-	# will read the configuration upon execution and will begin
-	# the rest of the startup process in the following order:
+	# initialize log4perl using the contents of the supplied
+	# configuration file.
 	#
-	#	- storage initialization via DBIx::Class
-	#	- queue creation via POE::Component::JobQueue
-	#	- RPC session creation via POE::Component::Server::SOAP
+	# after initialization (which may have failed), we'll
+	# create a logger and associated appender for logging
+	# all error level log messages to stderr.  this allows
+	# logging error messages to the console using log4perl
+	# regardless of the configuration that the user loads.
 
-	# create manager session
-	POE::Session->create
-	(
-		inline_states => {
-			_start		=> \&Hopkins::Manager::start,
-			_stop		=> \&Hopkins::Manager::stop,
+	eval { Log::Log4perl::init_and_watch($opts->{l4pconf}, $opts->{scan}) };
 
-			confscan	=> \&Hopkins::Config::scan,
-			confload	=> \&Hopkins::Config::load,
-			queueinit	=> \&Hopkins::Queue::init,
-			queuefail	=> \&Hopkins::Queue::fail,
-			storeinit	=> \&Hopkins::Store::init,
-			rpcinit		=> \&Hopkins::RPC::init,
-			scheduler	=> \&Hopkins::Manager::scheduler,
-			enqueue		=> \&Hopkins::Manager::enqueue,
-			taskstart	=> \&Hopkins::Manager::taskstart,
-			dequeue		=> \&Hopkins::Manager::dequeue,
-			shutdown	=> \&Hopkins::Manager::shutdown,
-		},
+	my $l4perr = $@;
+	my $logger = Log::Log4perl->get_logger('hopkins');
+	my $layout = new Log::Log4perl::Layout::PatternLayout '%c: %p: %m%n';
 
-		args => $opts
-	);
+	my $appender = new Log::Log4perl::Appender
+		'Log::Log4perl::Appender::Screen',
+		name	=> 'stderr',
+		stderr	=> 1;
+
+	$appender->layout($layout);
+	$appender->threshold($ERROR);
+	$logger->add_appender($appender);
+
+	Hopkins->log_error("unable to load log4perl configuration file: $l4perr")
+		if $l4perr;
+
+	$self->manager(new Hopkins::Manager $self);
 
 	return $self;
 }
@@ -138,6 +137,39 @@ aren't we pretty?  giggity giggity.
 =cut
 
 sub run { POE::Kernel->run }
+
+=item is_session_running
+
+returns a truth value indicating whether or not a session
+exists with the specified alias.
+
+=cut
+
+sub is_session_active
+{
+	my $self = shift;
+	my $name = shift;
+
+	my $api			= new POE::API::Peek;
+	my @sessions	= map { POE::Kernel->alias($_) } $api->session_list;
+
+	return grep { $name eq $_ } @sessions;
+}
+
+=item get_running_sessions
+
+returns a list of currently active session aliases
+
+=cut
+
+sub get_running_sessions
+{
+	my $self = shift;
+
+	my $api = new POE::API::Peek;
+
+	return map { POE::Kernel->alias($_) } $api->session_list;
+}
 
 =item get_logger
 
@@ -154,11 +186,12 @@ sub get_logger
 	my $self	= shift;
 	my $kernel	= shift || $poe_kernel;
 	my $alias	= $kernel->alias;
+	my $name	= 'hopkins' . ($alias ? '.' . $alias : '');
 
-	$alias = 'UNKNOWN' if not defined $alias;
+	$alias = 'unknown' if not defined $alias;
 
 	if (not exists $loggers->{$alias}) {
-		$loggers->{$alias} = Log::Log4perl->get_logger("hopkins.$alias");
+		$loggers->{$alias} = Log::Log4perl->get_logger($name);
 	}
 
 	return $loggers->{$alias};
