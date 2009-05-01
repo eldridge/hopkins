@@ -1,0 +1,41 @@
+[% page.layout	= 'modal' %]
+[% page.modal	= 'authentication required' %]
+
+<div id="page-top">
+	<div id="page-bottom">
+		<div>
+			<div id="sidebar">
+				<h2>[% host %]</h2>
+				<ul>
+					<li>
+						This system is private and is intended for authorized
+						users only. Unauthorized access or use is prohibited
+						and may lead to prosecution under Section 2(d) of the
+						Computer Fraud and Abuse Act of 1986 18 U.S.C.
+						1030(a)(5)(A)(1988)
+					</li>
+				</ul>
+			</div>
+
+			<div id="content">
+				<form id="login">
+					<fieldset>
+						<label>username:</label>
+						<input type="text" name="username" />
+
+						<br>
+
+						<label>password:</label>
+						<input type="password" name="password" />
+
+						<br>
+
+						<input type="submit" value="Login" />
+					</fieldset>
+				</form>
+			</div>
+
+            <div style="clear: both;">&nbsp;</div>
+		</div>
+	</div>
+</div>

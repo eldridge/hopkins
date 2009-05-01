@@ -1,0 +1,24 @@
+[% DEFAULT page.skin	= 'efflorescence' %]
+[% DEFAULT page.layout	= 'default' %]
+[% DEFAULT page.title	= '' %]
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
+	<head>
+		<title>hopkins HMI[% IF page.title %] - [% page.title %][% END %]</title>
+
+		<meta http-equiv="content-type" content="application/xhtml+xml; charset=UTF-8" />
+		<meta name="description" content="hopkins HMI" />
+		<meta name="robots" content="index, follow, noarchive" />
+		<meta name="googlebot" content="noarchive" />
+
+		<link rel="stylesheet" type="text/css" href="static/[% page.skin %]/style.css" media="screen, projection, tv " />
+	</head>
+
+	<body>
+		[% content WRAPPER "layout/${page.layout}.tt" %]
+	</body>
+</html>
+
