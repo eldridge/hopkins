@@ -55,7 +55,7 @@ sub new
 
 	my $self = $proto->SUPER::new($opts);
 
-	new POE::Component::Server::SOAP ALIAS => 'rpc-soap', ADDRESS => 0, PORT => $opts->{port};
+	new POE::Component::Server::SOAP ALIAS => 'rpc.soap', ADDRESS => 0, PORT => $opts->{port};
 
 	# create RPC session
 	POE::Session->create
@@ -96,7 +96,7 @@ sub start
 
 	$kernel->alias_set('rpc');
 
-	$kernel->post('rpc-soap' => ADDMETHOD => rpc => $_) foreach @methods;
+	$kernel->post('rpc.soap' => ADDMETHOD => rpc => $_) foreach @methods;
 }
 
 =item stop
@@ -107,7 +107,7 @@ sub stop
 {
 	my $kernel = $_[KERNEL];
 
-	$kernel->post('rpc-soap' => DELMETHOD => rpc => $_) foreach @methods;
+	$kernel->post('rpc.soap' => DELMETHOD => rpc => $_) foreach @methods;
 }
 
 =item enqueue
@@ -170,7 +170,7 @@ sub enqueue
 	# post a DONE event to the soap session; this will cause
 	# a SOAP response to be sent back to the client.
 
-	$kernel->post('rpc-soap' => DONE => $res);
+	$kernel->post('rpc.soap' => DONE => $res);
 }
 
 sub status
@@ -186,7 +186,7 @@ sub status
 
 	$res->content({ sessions => [ Hopkins->get_running_sessions ] });
 
-	$kernel->post('rpc-soap' => DONE => $res);
+	$kernel->post('rpc.soap' => DONE => $res);
 }
 
 sub queue_start
@@ -222,7 +222,7 @@ sub queue_start
 		$rv == HOPKINS_QUEUE_ALREADY_RUNNING
 		and do {
 			$res->content({ success => 1 });
-			$kernel->post('rpc-soap' => DONE => $res);
+			$kernel->post('rpc.soap' => DONE => $res);
 			last;
 		};
 
@@ -234,7 +234,7 @@ sub queue_start
 		$rv == HOPKINS_QUEUE_NOT_FOUND
 		and do {
 			$res->content({ success => 0, err => "invalid queue $name" });
-			$kernel->post('rpc-soap' => DONE => $res);
+			$kernel->post('rpc.soap' => DONE => $res);
 			last;
 		};
 
@@ -264,7 +264,7 @@ sub queue_start_waitchk
 		# client.
 
 		$res->content({ success => 1 });
-		$kernel->post('rpc-soap' => DONE => $res);
+		$kernel->post('rpc.soap' => DONE => $res);
 	} else {
 		# if the session wasn't found, we'll try to wait a
 		# bit for it to show up.  if we exceed the maximum
@@ -276,7 +276,7 @@ sub queue_start_waitchk
 			# error to the client.
 
 			$res->content({ success => 0, err => "unable to start queue $name" });
-			$kernel->post('rpc-soap' => DONE => $res);
+			$kernel->post('rpc.soap' => DONE => $res);
 		} else {
 			# else we'll go another round.  set a kernel
 			# alarm for the appropriate time.
@@ -322,7 +322,7 @@ sub queue_stop_waitchk
 		# client.
 
 		$res->content({ success => 1 });
-		$kernel->post('rpc-soap' => DONE => $res);
+		$kernel->post('rpc.soap' => DONE => $res);
 	} else {
 		# if the session was found, we'll try to wait a bit
 		# for it to be stopped.  if we exceed the maximum

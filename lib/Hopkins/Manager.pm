@@ -22,6 +22,7 @@ use Hopkins::Store;
 use Hopkins::Config;
 use Hopkins::Queue;
 use Hopkins::State;
+use Hopkins::Task;
 
 use Hopkins::Constants;
 
@@ -39,7 +40,7 @@ __PACKAGE__->mk_accessors(qw(conf l4pconf scan poll));
 
 sub new
 {
-	my $proto	= shift->SUPER::new(@_);
+	my $self	= shift->SUPER::new(@_);
 	my $hopkins	= shift;
 
 	# create the POE Session that will be the bread and butter
@@ -67,6 +68,7 @@ sub new
 			init_store		=> \&init_store,
 			init_state		=> \&init_state,
 
+			queue_check		=> \&queue_check,
 			queue_start		=> \&queue_start,
 			queue_failure	=> \&queue_failure,
 
@@ -81,7 +83,7 @@ sub new
 		args => [ $hopkins ]
 	);
 
-	return bless {}, ref $proto || $proto;
+	return $self;
 }
 
 =item start
@@ -93,9 +95,6 @@ sub start
 	my $kernel	= $_[KERNEL];
 	my $heap	= $_[HEAP];
 	my $hopkins	= $_[ARG0];
-
-	use Data::Dumper;
-	print Dumper($hopkins);
 
 	# a little initialization:
 	#
@@ -147,7 +146,7 @@ sub init_queues
 	# up to the manager session.
 
 	foreach my $name ($config->get_queue_names) {
-		$kernel->post(queue_start => $name);
+		$kernel->post(manager => queue_start => $name);
 	}
 }
 
@@ -167,6 +166,16 @@ sub queue_start
 	}
 
 	return HOPKINS_QUEUE_STARTED;
+}
+
+sub queue_check
+{
+	my $kernel	= $_[KERNEL];
+	my $heap	= $_[HEAP];
+	my $name	= $_[ARG0];
+	my $config	= $heap->{config};
+
+	return $heap->{queues}->{$name};
 }
 
 =item init_store
@@ -245,11 +254,7 @@ sub config_load
 	my $config	= $heap->{config};
 	my $status	= $config->load;
 
-	if (not $status->ok) {
-		Hopkins->log_error('errors in configuration, unable to continue');
-
-		$kernel->post(manager => 'shutdown');
-	}
+	$kernel->post(manager => 'shutdown') unless $status->ok;
 
 	if ($status->failed) {
 		my $err = $status->parsed
@@ -373,39 +378,35 @@ sub enqueue
 	my $opts	= $_[ARG1];
 	my $config	= $heap->{config};
 
-	my $task = $config->get_task_info($name);
+	my $info = $config->get_task_info($name);
 
-	return HOPKINS_ENQUEUE_TASK_NOT_FOUND if not defined $task;
+	if (not defined $info) {
+		Hopkins->log_warn("unable to enqueue $name; task not found");
+		return HOPKINS_ENQUEUE_TASK_NOT_FOUND;
+	}
 
-	my $class	= $task->{class};
-	my $queue	= $task->{queue};
-	my $cmd		= $task->{cmd};
+	my $queue = $kernel->call(manager => queue_check => $info->{queue});
 
-	if (not Hopkins::Queue->is_running($queue)) {
-		Hopkins->log_warn("unable to enqueue $name; queue not running");
+	if (not defined $queue) {
+		Hopkins->log_warn("unable to enqueue $name; queue $info->{queue} not running");
 		return HOPKINS_ENQUEUE_QUEUE_UNAVAILABLE;
 	}
 
 	# notify the state tracker that we're going to enqueue
-	# a task.  the state tracker will return an identifier
+	# a task.  the state tracker will assign an identifier
 	# that will be used to identify it throughout its life.
 
-	#my $id = $kernel->call(state => 'record_task_enqueue', $name, $queue);
+	my $task = new Hopkins::Task { %$info, name => $name, queue => $queue };
 
-	my $task	= new Hopkins::Task { queue => $queue };
-	my $id		= $kernel->call(state => task_enqueued => $task);
+	$kernel->call(state => task_enqueued => $task);
 
 	# post one of two enqueue events, depending on whether
 	# the task has an associated class name or an explicit
 	# command line specification.
 
-	Hopkins->log_debug("posting enqueue event for $name ($id)");
+	Hopkins->log_debug("posting enqueue event for $name (" . $task->id . ')');
 
-	my @args	= ("queue.$queue", 'enqueue', 'dequeue', $id, $name);
-	my $res		= undef;
-
-	$kernel->post(@args, 'perl', $class, $opts)	if $class;
-	$kernel->post(@args, 'exec', $cmd)			if $cmd;
+	$kernel->post($queue->alias => enqueue => dequeue => $task);
 
 	return HOPKINS_ENQUEUE_OK;
 }

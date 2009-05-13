@@ -22,7 +22,7 @@ use Hopkins::Worker;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(name onerror onfatal concurrency));
+__PACKAGE__->mk_accessors(qw(name alias onerror onfatal concurrency));
 
 =head1 STATES
 
@@ -39,15 +39,15 @@ sub new
 use YAML;
 print Dump($self);
 
-	my $alias = 'queue.' . $self->name;
-
 	Hopkins->log_debug('spawning queue ' . $self->name);
+
+	$self->alias('queue.' . $self->name);
 
 	POE::Component::JobQueue->spawn
 	(
-		Alias		=> $alias,
+		Alias		=> $self->alias,
 		WorkerLimit	=> $self->concurrency,
-		Worker		=> sub { new Hopkins::Worker @_, $alias },
+		Worker		=> sub { $self->spawn_worker(@_) },
 		Passive		=> { Prioritizer => \&Hopkins::Queue::prioritize },
 	);
 
@@ -116,6 +116,24 @@ sub is_running
 	my $name = shift;
 
 	return Hopkins->is_session_active("queue.$name");
+}
+
+=item spawn_worker
+
+=cut
+
+sub spawn_worker
+{
+	my $self = shift;
+
+	my $args =
+	{
+		postback	=> shift,
+		task		=> shift,
+		queue		=> $self
+	};
+
+	new Hopkins::Worker $args;
 }
 
 =back

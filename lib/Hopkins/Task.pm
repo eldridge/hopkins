@@ -19,7 +19,7 @@ use Class::Accessor::Fast;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(id name queue date_enqueued date_to_execute date_started date_completed row));
+__PACKAGE__->mk_accessors(qw(id name class cmd queue date_enqueued date_to_execute date_started date_completed row));
 
 =back
 

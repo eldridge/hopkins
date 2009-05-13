@@ -22,6 +22,7 @@ use DateTime;
 use DateTime::Event::MultiCron;
 use DateTime::Set;
 use XML::Simple;
+use YAML;
 
 use Hopkins::Config::Status;
 
@@ -82,10 +83,18 @@ sub load
 		my $task = $config->{task}->{$name};
 		my $node = $task->{schedule};
 
+		# collapse the damn task queue from the ForceArray
+		$task->{queue} = $task->{queue}->[0] if ref $task->{queue};
+
 		next if not defined $node;
 
 		if (!($task->{class} || $task->{cmd})) {
 			Hopkins->log_error("task $name lacks a class or command line");
+			$status->failed(1);
+		}
+
+		if ($task->{class} && $task->{cmd}) {
+			Hopkins->log_error("task $name using mutually exclusive class/cmd");
 			$status->failed(1);
 		}
 
@@ -162,8 +171,7 @@ sub parse
 		$href->{$_} = $href->{$_}->{value} foreach keys %$href;
 	}
 
-#use YAML;
-#	print Dump($ref);
+	Hopkins->log_debug(Dump $ref);
 
 	return $ref;
 }
@@ -177,16 +185,18 @@ sub scan
 
 sub get_queue_names
 {
-	my $self = shift;
+	my $self	= shift;
+	my $config	= $self->config || {};
 
-	return keys %{ $self->config->{queue} };
+	return $config->{queue} ? keys %{ $config->{queue} } : ();
 }
 
 sub get_task_names
 {
-	my $self = shift;
+	my $self	= shift;
+	my $config	= $self->config || {};
 
-	return keys %{ $self->config->{task} };
+	return $config->{task} ? keys %{ $config->{task} } : ();
 }
 
 sub get_task_info

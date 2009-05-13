@@ -110,7 +110,7 @@ sub new
 
 	my $l4perr = $@;
 	my $logger = Log::Log4perl->get_logger('hopkins');
-	my $layout = new Log::Log4perl::Layout::PatternLayout '%c: %p: %m%n';
+	my $layout = new Log::Log4perl::Layout::PatternLayout '%X{session}: %p: %m%n';
 
 	my $appender = new Log::Log4perl::Appender
 		'Log::Log4perl::Appender::Screen',
@@ -153,7 +153,9 @@ sub is_session_active
 	my $api			= new POE::API::Peek;
 	my @sessions	= map { POE::Kernel->alias($_) } $api->session_list;
 
-	return grep { $name eq $_ } @sessions;
+	Hopkins->log_debug("checking for session $name");
+
+	return scalar grep { $name eq $_ } @sessions;
 }
 
 =item get_running_sessions
@@ -186,28 +188,38 @@ sub get_logger
 	my $self	= shift;
 	my $kernel	= shift || $poe_kernel;
 	my $alias	= $kernel->alias;
-	my $name	= 'hopkins' . ($alias ? '.' . $alias : '');
+	my $session	= 'hopkins' . ($alias ? '.' . $alias : '');
+	my $name	= lc ((caller(2))[3]);
 
 	$alias = 'unknown' if not defined $alias;
 
-	if (not exists $loggers->{$alias}) {
-		$loggers->{$alias} = Log::Log4perl->get_logger($name);
+	if (not exists $loggers->{$name}) {
+		$loggers->{$name} = Log::Log4perl->get_logger($name);
 	}
 
-	return $loggers->{$alias};
+	Log::Log4perl::MDC->put('session', $session);
+
+	return $loggers->{$name};
 }
 
 sub get_worker_logger
 {
 	my $self	= shift;
 	my $name	= shift;
-	my $alias	= "task.$name";
+	my $kernel	= shift || $poe_kernel;
+	my $alias	= $kernel->alias;
+	my $session	= 'hopkins' . ($alias ? '.' . $alias : '');
+	my $name	= lc ((caller(2))[3]);
 
-	if (not exists $loggers->{$alias}) {
-		$loggers->{$alias} = Log::Log4perl->get_logger("hopkins.$alias");
+	$alias = 'unknown' if not defined $alias;
+
+	if (not exists $loggers->{$name}) {
+		$loggers->{$name} = Log::Log4perl->get_logger($name);
 	}
 
-	return $loggers->{$alias};
+	Log::Log4perl::MDC->put('session', $session);
+
+	return $loggers->{$name};
 }
 
 sub log_debug	{ return shift->get_logger->debug(@_)	}

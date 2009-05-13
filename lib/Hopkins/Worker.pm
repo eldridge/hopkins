@@ -15,6 +15,12 @@ Hopkins::Queue->spawn_worker via POE::Component::JobQueue.
 
 use POE;
 
+use Class::Accessor::Fast;
+
+use base 'Class::Accessor::Fast';
+
+__PACKAGE__->mk_accessors(qw(alias postback task params child));
+
 =head1 STATES
 
 =over 4
@@ -25,22 +31,18 @@ use POE;
 
 sub new
 {
-	my $proto		= shift;
-	my $postback	= shift;
-	my $id			= shift;
-	my $name		= shift;
-	my $method		= shift;
-	my $source		= shift;
-	my $params		= shift;
-	my $queue		= shift;
+	my $self = shift->SUPER::new(@_);
+
+	my $method = $self->task->class ? 'perl' : 'exec';
+	my $source = $self->task->class || $self->task->cmd;
 
 	Hopkins->log_debug("spawning worker: type=$method; source=$source");
 
-	my $now		= DateTime->now;
-	my $schema	= Hopkins::Store->schema;
-	my $rsTask	= $schema->resultset('Task');
+	#my $now		= DateTime->now;
+	#my $schema	= Hopkins::Store->schema;
+	#my $rsTask	= $schema->resultset('Task');
 
-	$rsTask->find($id)->update({ date_started => $now });
+	#$rsTask->find($id)->update({ date_started => $now });
 
 	POE::Session->create
 	(
@@ -54,7 +56,7 @@ sub new
 			done		=> \&done
 		},
 
-		args => [ $postback, $id, $name, $method, $source, $params, $queue ]
+		args => [ $self ]
 	);
 }
 
@@ -65,17 +67,17 @@ sub new
 sub inline
 {
 	my $self	= shift;
-	my $source	= shift;
+	my $class	= shift;
 	my $params	= shift || {};
 
 	return sub
 	{
-		Hopkins::Store->schema->storage->dbh->{InactiveDestroy} = 1;
+		#Hopkins::Store->schema->storage->dbh->{InactiveDestroy} = 1;
 
-		eval "require $source";
+		eval "require $class";
 		die $@ if $@;
 
-		my $obj = $source->new({ options => $params });
+		my $obj = $class->new({ options => $params });
 
 		return $obj->run;
 	}
@@ -89,28 +91,31 @@ sub start
 {
 	my $kernel		= $_[KERNEL];
 	my $heap		= $_[HEAP];
-	my $postback	= $_[ARG0];
-	my $id			= $_[ARG1];
-	my $name		= $_[ARG2];
-	my $method		= $_[ARG3];
-	my $source		= $_[ARG4];
-	my $params		= $_[ARG5];
-	my $queue		= $_[ARG6];
+	my $worker		= $_[ARG0];
+	my $task		= $worker->task;
 
-	$kernel->post('manager' => 'taskstart', $id);
+	$kernel->post(store => 'notify', 'task_update', $task->id, status => 'running');
+	#$kernel->post('manager' => 'taskstart', $worker->id);
 
 	# set the name of this session's alias based on the queue and session ID
 	my $session = $kernel->get_active_session;
-	$kernel->alias_set(join '.', $queue, 'worker', $session->ID);
+
+	$worker->alias(join '.', $task->queue->name, 'worker', $session->ID);
+	$kernel->alias_set($worker->alias);
 
 	Hopkins->log_debug('worker session created');
 
-	# determine the Program argument based upon what "method" we're using
-	my $program = $method eq 'perl'
-		? Hopkins::Worker->inline($source, $params)
-		: $source;
+	# determine the Program argument based upon what method
+	# we're using.  POE::Wheel::Run will execute both native
+	# perl code as well as external binaries depending upon
+	# whether the argument is a coderef or a simple scalar.
+
+	my $program = $task->class
+		? $worker->inline($task->class, $worker->params)
+		: $task->cmd;
 
 	# construct the arguments neccessary for POE::Wheel::Run
+
 	my %args =
 	(
 		Program		=> $program,
@@ -118,13 +123,14 @@ sub start
 		StderrEvent	=> 'stderr'
 	);
 
-	$kernel->sig(CHLD => 'done');
+	# store the Worker object in the HEAP, make sure we're
+	# setup to handle any signals, then spawn the child in
+	# a separate process via POE::Wheel::Run.
 
-	# set a few session-specific things in the heap and then spawn the child
-	$heap->{postback}	= $postback;
-	$heap->{queue}		= $queue;
-	$heap->{name}		= $name;
-	$heap->{child}		= new POE::Wheel::Run %args;
+	$heap->{worker}	= $worker;
+
+	$kernel->sig(CHLD => 'done');
+	$worker->child(new POE::Wheel::Run %args);
 }
 
 sub stop
@@ -142,19 +148,21 @@ sub done
 	my $signal	= $_[ARG0];
 	my $pid		= $_[ARG1];
 	my $status	= $_[ARG2];
+	my $worker	= $heap->{worker};
+	my $task	= $worker->task;
 
-	return if $pid != $heap->{child}->PID;
+	return if $pid != $worker->child->PID;
 
 	Hopkins->log_debug("child process $pid exited with status $status");
 
 	if ($status == 0) {
-		Hopkins->log_info("worker successfully completed $heap->{name}");
+		Hopkins->log_info('worker successfully completed ' . $task->name);
 	} else {
-		Hopkins->log_error("worker exited abnormally ($status) while executing $heap->{name}");
-		$kernel->call(manager => queuefail => $heap->{queue});
+		Hopkins->log_error("worker exited abnormally ($status) while executing " . $task->name);
+		$kernel->call(manager => queuefail => $task->queue->name);
 	}
 
-	$heap->{postback}->($pid, $status);
+	$worker->postback->($pid, $status);
 	$kernel->yield('shutdown');
 }
 
@@ -162,18 +170,16 @@ sub shutdown
 {
 	my $kernel	= $_[KERNEL];
 	my $heap	= $_[HEAP];
+	my $worker	= $heap->{worker};
 
 	# we have to remove the session alias from the kernel,
 	# else POE will never destroy the session.
 
-	my $session	= $kernel->get_active_session;
-	my $alias	= join '.', $heap->{queue}, 'worker', $session->ID;
-
-	$kernel->alias_remove($alias);
+	$kernel->alias_remove($worker->alias);
 }
 
-sub log_stdout { Hopkins->log_worker_stdout($_[HEAP]->{name}, $_[ARG0]) }
-sub log_stderr { Hopkins->log_worker_stderr($_[HEAP]->{name}, $_[ARG0]) }
+sub log_stdout { Hopkins->log_worker_stdout($_[HEAP]->{worker}->task->name, $_[ARG0]) }
+sub log_stderr { Hopkins->log_worker_stderr($_[HEAP]->{worker}->task->name, $_[ARG0]) }
 
 =back
 
