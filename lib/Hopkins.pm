@@ -205,11 +205,11 @@ sub get_logger
 sub get_worker_logger
 {
 	my $self	= shift;
-	my $name	= shift;
+	my $task	= shift;
 	my $kernel	= shift || $poe_kernel;
 	my $alias	= $kernel->alias;
 	my $session	= 'hopkins' . ($alias ? '.' . $alias : '');
-	my $name	= lc ((caller(2))[3]);
+	my $name	= "hopkins.task.$task";
 
 	$alias = 'unknown' if not defined $alias;
 
@@ -217,7 +217,8 @@ sub get_worker_logger
 		$loggers->{$name} = Log::Log4perl->get_logger($name);
 	}
 
-	Log::Log4perl::MDC->put('session', $session);
+	Log::Log4perl::MDC->put('session',	$session);
+	Log::Log4perl::MDC->put('task',		$task);
 
 	return $loggers->{$name};
 }

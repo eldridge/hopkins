@@ -23,6 +23,7 @@ use Hopkins::Config;
 use Hopkins::Queue;
 use Hopkins::State;
 use Hopkins::Task;
+use Hopkins::Work;
 
 use Hopkins::Constants;
 
@@ -128,7 +129,7 @@ sub start
 
 sub stop
 {
-	Hopkins->log_debug('manager exiting');
+	Hopkins->log_debug('exiting');
 }
 
 =item init_queues
@@ -330,17 +331,15 @@ sub scheduler
 	foreach my $name ($config->get_task_names) {
 		my $now		= DateTime->now;
 		my $task	= $config->get_task_info($name);
-		my $set		= $task->{schedules};
 
-		next if not defined $set;
+		next if not defined $task->schedule;
 
-		my $opts	= $task->{option};
-		my $serial	= $task->{run} eq 'serial' ? 1 : 0;
-		my $last	= $set->previous($now);
-		my $active	= lc $task->{active} eq 'no' ? 0 : 1;
+		my $opts	= $task->options;
+		my $serial	= $task->run eq 'serial' ? 1 : 0;
+		my $last	= $task->schedule->previous($now);
 
 		Hopkins->log_debug("checking if $name is marked inactive");
-		next if not $active;
+		next if not $task->enabled;
 
 		#Hopkins->log_debug("checking if $name has been executed since $last");
 		#next if $rsTask->task_executed_since($name, $last);
@@ -378,17 +377,17 @@ sub enqueue
 	my $opts	= $_[ARG1];
 	my $config	= $heap->{config};
 
-	my $info = $config->get_task_info($name);
+	my $task = $config->get_task_info($name);
 
-	if (not defined $info) {
+	if (not defined $task) {
 		Hopkins->log_warn("unable to enqueue $name; task not found");
 		return HOPKINS_ENQUEUE_TASK_NOT_FOUND;
 	}
 
-	my $queue = $kernel->call(manager => queue_check => $info->{queue});
+	my $queue = $kernel->call(manager => queue_check => $task->queue);
 
 	if (not defined $queue) {
-		Hopkins->log_warn("unable to enqueue $name; queue $info->{queue} not running");
+		Hopkins->log_warn("unable to enqueue $name; queue " . $task->queue . ' not running');
 		return HOPKINS_ENQUEUE_QUEUE_UNAVAILABLE;
 	}
 
@@ -396,39 +395,36 @@ sub enqueue
 	# a task.  the state tracker will assign an identifier
 	# that will be used to identify it throughout its life.
 
-	my $task = new Hopkins::Task { %$info, name => $name, queue => $queue };
+	my $work = new Hopkins::Work { task => $task, queue => $queue };
 
-	$kernel->call(state => task_enqueued => $task);
+	$kernel->call(state => task_enqueued => $work);
 
 	# post one of two enqueue events, depending on whether
 	# the task has an associated class name or an explicit
 	# command line specification.
 
-	Hopkins->log_debug("posting enqueue event for $name (" . $task->id . ')');
+	Hopkins->log_debug("enqueuing task $name (" . $work->id . ')');
 
-	$kernel->post($queue->alias => enqueue => dequeue => $task);
+	$kernel->post($queue->alias => enqueue => dequeue => $work);
 
 	return HOPKINS_ENQUEUE_OK;
 }
 
-=item queue_fail
+=item queue_failure
 
 =cut
 
-sub queue_fail
+sub queue_failure
 {
 	my $kernel	= $_[KERNEL];
 	my $heap	= $_[HEAP];
-	my $alias	= $_[ARG0];
-	my $config	= $heap->{config};
+	my $queue	= $_[ARG0];
 
-	my ($name)	= ($alias =~ /^queue\.(.+)?/);
-	my $queue	= $config->get_queue_info($name);
-	my $msg		= "failure in $name queue";
+	my $msg = 'task failure in ' . $queue->name . ' queue';
 
-	if ($queue->{onerror} eq 'halt') {
+	if ($queue->onerror eq 'halt') {
 		$msg .= '; halting queue';
-		$kernel->post("queue.$name" => 'stop');
+		$kernel->post($queue->alias => 'stop');
 	}
 
 	Hopkins->log_error($msg);
@@ -439,10 +435,9 @@ sub dequeue
 	my $kernel	= $_[KERNEL];
 	my $heap	= $_[HEAP];
 	my $params	= $_[ARG0];
-	my $id		= $params->[0];
-	my $name	= $params->[1];
+	my $work	= $params->[0];
 
-	Hopkins->log_debug("received dequeue event for $name ($id)");
+	Hopkins->log_debug('dequeued task ' . $work->task->name . ' (' . $work->id . ')');
 
 	#my $now		= DateTime->now;
 	#my $state	= $heap->{state};
@@ -450,7 +445,7 @@ sub dequeue
 	#my $rsTask	= $schema->resultset('Task');
 	#my $task	= $rsTask->find($id);
 
-	$kernel->call(state => task_completed => $id);
+	$kernel->call(state => task_completed => $work);
 
 	#$task->date_completed($now);
 	#$task->update;

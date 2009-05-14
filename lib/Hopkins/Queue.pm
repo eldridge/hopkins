@@ -36,9 +36,6 @@ sub new
 {
 	my $self = shift->SUPER::new(@_);
 
-use YAML;
-print Dump($self);
-
 	Hopkins->log_debug('spawning queue ' . $self->name);
 
 	$self->alias('queue.' . $self->name);
@@ -129,7 +126,7 @@ sub spawn_worker
 	my $args =
 	{
 		postback	=> shift,
-		task		=> shift,
+		work		=> shift,
 		queue		=> $self
 	};
 

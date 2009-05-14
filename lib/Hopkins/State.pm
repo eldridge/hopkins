@@ -58,6 +58,8 @@ sub start
 	my $heap	= $_[HEAP];
 	my $state	= $_[ARG0];
 
+	$kernel->alias_set('state');
+
 	$heap->{state} = $state;
 }
 
@@ -77,7 +79,7 @@ sub task_enqueued
 	my $task	= $_[ARG0];
 	my $state	= $heap->{state};
 
-	$task->id($ug->create);
+	$task->id($ug->create_str);
 
 	$state->tasks->{$task->id} = $task;
 

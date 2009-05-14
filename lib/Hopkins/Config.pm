@@ -25,6 +25,7 @@ use XML::Simple;
 use YAML;
 
 use Hopkins::Config::Status;
+use Hopkins::Task;
 
 use Class::Accessor::Fast;
 
@@ -80,28 +81,41 @@ sub load
 
 	# process any cron-like schedules
 	foreach my $name (keys %{ $config->{task} }) {
-		my $task = $config->{task}->{$name};
-		my $node = $task->{schedule};
+		my $href = $config->{task}->{$name};
 
 		# collapse the damn task queue from the ForceArray
-		$task->{queue} = $task->{queue}->[0] if ref $task->{queue};
+		# and interpret the value of the enabled attribute
 
-		next if not defined $node;
+		$href->{queue}		= $href->{queue}->[0] if ref $href->{queue};
+		$href->{enabled}	= lc($href->{enabled}) eq 'no' ? 0 : 1;
 
-		if (!($task->{class} || $task->{cmd})) {
+		my $task = new Hopkins::Task { name => $name, %$href };
+
+		if (not $task->queue) {
+			Hopkins->log_error("task $name not assigned to a queue");
+			$status->failed(1);
+		}
+
+		if (not $task->class || $task->cmd) {
 			Hopkins->log_error("task $name lacks a class or command line");
 			$status->failed(1);
 		}
 
-		if ($task->{class} && $task->{cmd}) {
+		if ($task->class and $task->cmd) {
 			Hopkins->log_error("task $name using mutually exclusive class/cmd");
 			$status->failed(1);
 		}
 
-		my @a	= ref($node) eq 'ARRAY' ? @$node : ($node);
-		my $set	= DateTime::Event::MultiCron->from_multicron(@a);
+		if (my $node = $task->schedule) {
+			my @a	= ref($node) eq 'ARRAY' ? @$node : ($node);
+			my $set	= DateTime::Event::MultiCron->from_multicron(@a);
 
-		$config->{task}->{$name}->{schedules} = $set;
+			$task->schedule($set);
+		} else {
+			$task->schedule(undef);
+		}
+
+		$config->{task}->{$name} = $task;
 	}
 
 	# check to see if the new configuration includes a

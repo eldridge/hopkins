@@ -42,12 +42,12 @@
 		<queue>general</queue>
 	</task>
 
-	<task name="Wait30" onerror="suspend">
+	<task name="Wait30" onerror="disable">
 		<class>Greenspan::Job::Wait30</class>
 		<queue>general</queue>
 	</task>
 
-	<task name="ProductImageRefresh" run="serial" active="no">
+	<task name="ProductImageRefresh" run="serial" enabled="no">
 		<class>Greenspan::Job::ProductImageRefresh</class>
 		<prereq>ImageFetcher</prereq>
 		<schedule>*/10 * * * *</schedule>
@@ -81,6 +81,7 @@
 	<task name="SetRefresher">
 		<class>Greenspan::Job::SetRefresher</class>
 		<schedule>0 * * * *</schedule>
+		<queue>general</queue>
 	</task>
 
 	<task name="AS/400 Sync" run="serial" active="yes">
