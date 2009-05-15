@@ -325,7 +325,7 @@ sub scheduler
 	my $config	= $heap->{config};
 	my $hopkins	= $heap->{hopkins};
 
-	Hopkins->log_debug('checking queue for tasks to post');
+	Hopkins->log_debug('checking for tasks to enqueue');
 
 	foreach my $name ($config->get_task_names) {
 		my $now		= DateTime->now;
