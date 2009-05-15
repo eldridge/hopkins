@@ -88,6 +88,7 @@ sub load
 
 		$href->{queue}		= $href->{queue}->[0] if ref $href->{queue};
 		$href->{enabled}	= lc($href->{enabled}) eq 'no' ? 0 : 1;
+		$href->{options}	= delete $href->{option};
 
 		my $task = new Hopkins::Task { name => $name, %$href };
 
@@ -116,6 +117,32 @@ sub load
 		}
 
 		$config->{task}->{$name} = $task;
+	}
+
+	# setup any task chains
+
+	foreach my $task (grep { $_->chain } values %{ $config->{task} }) {
+		my @chain;
+
+		foreach my $href (@{ $task->chain }) {
+			my $name = $href->{task};
+			my $task = $config->{task}->{$name};
+
+			if (not defined $task) {
+				Hopkins->log_error("chained task $name for " . $task->name . " not found");
+				$status->failed(1);
+			}
+
+			my $chained = new Hopkins::Task $task;
+
+			$chained->options($href->{option});
+			$chained->schedule(undef);
+			$chained->chain(undef);
+
+			push @chain, $chained;
+		}
+
+		$task->chain(\@chain);
 	}
 
 	# check to see if the new configuration includes a
@@ -161,7 +188,7 @@ sub parse
 		ValueAttr		=> [ 'value' ],
 		GroupTags		=> { options => 'option' },
 		SuppressEmpty	=> '',
-		ForceArray		=> [ 'plugin', 'queue', 'task' ],
+		ForceArray		=> [ 'plugin', 'queue', 'task', 'chain' ],
 		KeyAttr			=>
 		{
 			plugin	=> 'name',
