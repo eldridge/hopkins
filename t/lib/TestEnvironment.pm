@@ -20,7 +20,7 @@ use Template;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(conf config scratch));
+__PACKAGE__->mk_accessors(qw(conf source scratch template));
 
 =head1 METHODS
 
@@ -34,20 +34,42 @@ sub new
 {
 	my $self = shift->SUPER::new(@_);
 
-	my $scratch		= new Directory::Scratch TEMPLATE => 'hopkins-test-XXXXX';
-	my $template	= new Template { INCLUDE_PATH => $FindBin::Bin };
-	my ($fh, $path)	= $scratch->openfile('hopkins.xml');
+	$self->scratch(new Directory::Scratch TEMPLATE => 'hopkins-test-XXXXX');
 
-	$self->conf('hopkins.xml.tt') if not $self->conf;
-	$template->process($self->conf, { scratch => $scratch }, $fh);
+	$self->process if $self->source;
 
-	$self->config($path);
-	$self->scratch($scratch);
+	#$self->conf('hopkins.xml.tt') if not $self->conf;
+	return $self;
+}
+
+sub source
+{
+	my $self = shift;
+
+	my $rv;
+
+	if (scalar @_) {
+		$rv = $self->set('source', @_);
+		$self->process;
+	} else {
+		$rv = $self->get('source');
+	}
+}
+
+sub process
+{
+	my $self = shift;
+
+	my ($fh, $path)	= $self->scratch->openfile('hopkins.xml');
+
+	my $template = new Template { INCLUDE_PATH => $FindBin::Bin };
+
+	$template->process($self->source, $self, $fh);
 
 	$fh->sync;
 	$fh->close;
 
-	return $self;
+	$self->conf($path->stringify);
 }
 
 =head1 SEE ALSO

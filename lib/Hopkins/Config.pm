@@ -16,11 +16,10 @@ values when required.
 
 =cut
 
-use POE;
-
 use DateTime;
 use DateTime::Event::MultiCron;
 use DateTime::Set;
+use File::Monitor;
 use XML::Simple;
 use YAML;
 
@@ -74,6 +73,8 @@ sub load
 		$status->failed(1);
 		$status->parsed(0);
 
+		Hopkins->log_error('failed to load XML configuration file: ' . $status->errmsg);
+
 		return $status;
 	}
 
@@ -88,7 +89,7 @@ sub load
 
 		$href->{queue}		= $href->{queue}->[0] if ref $href->{queue};
 		$href->{enabled}	= lc($href->{enabled}) eq 'no' ? 0 : 1;
-		$href->{options}	= delete $href->{option};
+		#$href->{options}	= delete $href->{option};
 
 		my $task = new Hopkins::Task { name => $name, %$href };
 
@@ -119,31 +120,7 @@ sub load
 		$config->{task}->{$name} = $task;
 	}
 
-	# setup any task chains
-
-	foreach my $task (grep { $_->chain } values %{ $config->{task} }) {
-		my @chain;
-
-		foreach my $href (@{ $task->chain }) {
-			my $name = $href->{task};
-			my $task = $config->{task}->{$name};
-
-			if (not defined $task) {
-				Hopkins->log_error("chained task $name for " . $task->name . " not found");
-				$status->failed(1);
-			}
-
-			my $chained = new Hopkins::Task $task;
-
-			$chained->options($href->{option});
-			$chained->schedule(undef);
-			$chained->chain(undef);
-
-			push @chain, $chained;
-		}
-
-		$task->chain(\@chain);
-	}
+	$self->_setup_chains($config, $status, values %{ $config->{task} });
 
 	# check to see if the new configuration includes a
 	# modified database configuration.
@@ -177,6 +154,41 @@ sub load
 	return $status;
 }
 
+sub _setup_chains
+{
+	my $self	= shift;
+	my $config	= shift;
+	my $status	= shift;
+
+	while (my $task = shift) {
+		my @chain;
+
+		next if not defined $task->chain;
+
+		foreach my $href (@{ $task->chain }) {
+			my $name = $href->{task};
+			my $next = $config->{task}->{$name};
+
+			if (not defined $next) {
+				Hopkins->log_error("chained task $name for " . $task->name . " not found");
+				$status->failed(1);
+			}
+
+			my $task = new Hopkins::Task $next;
+
+			$task->options($href->{options});
+			$task->chain($href->{chain});
+			$task->schedule(undef);
+
+			push @chain, $task;
+		}
+
+		$self->_setup_chains($config, $status, @chain);
+
+		$task->chain(\@chain);
+	}
+}
+
 sub parse
 {
 	my $self	= shift;
@@ -188,7 +200,9 @@ sub parse
 		ValueAttr		=> [ 'value' ],
 		GroupTags		=> { options => 'option' },
 		SuppressEmpty	=> '',
-		ForceArray		=> [ 'plugin', 'queue', 'task', 'chain' ],
+		ForceArray		=> [ 'plugin', 'task', 'chain', 'option' ],
+		ContentKey		=> '-value',
+		ValueAttr		=> { option => 'value' },
 		KeyAttr			=>
 		{
 			plugin	=> 'name',
@@ -205,11 +219,6 @@ sub parse
 		$status->errmsg($err);
 
 		return undef;
-	}
-
-	# flatten options attributes
-	if (my $href = $ref->{database}->{options}) {
-		$href->{$_} = $href->{$_}->{value} foreach keys %$href;
 	}
 
 	Hopkins->log_debug(Dump $ref);

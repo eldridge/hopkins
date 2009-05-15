@@ -16,7 +16,6 @@ session *IS* hopkins.
 
 use POE;
 use Class::Accessor::Fast;
-use File::Monitor;
 
 use Hopkins::Store;
 use Hopkins::Config;

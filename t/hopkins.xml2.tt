@@ -28,5 +28,6 @@
 
 	<task name="Wrench">
 		<class>Hopkins::Test::Die</class>
+		<queue>serial</queue>
 	</task>
 </hopkins>

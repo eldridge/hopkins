@@ -20,13 +20,39 @@
 		<concurrency>1</concurrency>
 	</queue>
 
-	<task name="Count">
+	<task name="Count" enabled="no">
 		<class>Hopkins::Test::Count</class>
 		<schedule>* * * * *</schedule>
 		<queue>serial</queue>
+		<chain task="Sum">
+			<options>
+				<option name="arg0" value="1" />
+				<option name="arg1" value="2" />
+			</options>
+			<chain task="Email">
+				<options>
+					<option name="dest" value="test@domain.com" />
+				</options>
+			</chain>
+		</chain>
+	</task>
+
+	<task name="Email">
+		<cmd>/usr/bin/mail</cmd>
+		<queue>parallel</queue>
+		<schedule>*/10 * * * *</schedule>
+	</task>
+
+	<task name="Sum">
+		<class>Hopkins::Test::Sum</class>
+		<schedule>15 3 10 1-11 *</schedule>
+		<schedule>15 3 20 1-11 *</schedule>
+		<schedule>30 2 31 12 *</schedule>
+		<queue>parallel</queue>
 	</task>
 
 	<task name="Wrench">
 		<class>Hopkins::Test::Die</class>
+		<queue>parallel</queue>
 	</task>
 </hopkins>
