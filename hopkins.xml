@@ -71,11 +71,13 @@
 		<class>Greenspan::Job::Fulfiller::B2B::FTP</class>
 		<schedule>0 0 * * 4</schedule>
 		<queue>fulfillment</queue>
-		<option name="fulfiller_id" value="258" />
-		<option name="cutoff" value="week" />
-		<option name="ftp_host" value="ftp.nww.com" />
-		<option name="ftp_user" value="magazin" />
-		<option name="ftp_pass" value="5te2aC" />
+		<options>
+			<option name="fulfiller_id" value="258" />
+			<option name="cutoff" value="week" />
+			<option name="ftp_host" value="ftp.nww.com" />
+			<option name="ftp_user" value="magazin" />
+			<option name="ftp_pass" value="5te2aC" />
+		</options>
 	</task>
 
 	<task name="SetRefresher">
@@ -89,7 +91,14 @@
 		<schedule>0 7 * * *</schedule>
 		<queue>orderproc</queue>
 		<chain task="SetRefresher">
-			<option name="set" value="230" />
+			<options>
+				<option name="set" value="230" />
+			</options>
+			<chain task="Wait30">
+				<options>
+					<option name="durh" value="wtf" />
+				</options>
+			</chain>
 		</chain>
 	</task>
 
@@ -97,6 +106,8 @@
 		<class>Greenspan::Job::Monitor::HTTP</class>
 		<schedule>*/5 * * * *</schedule>
 		<queue>general</queue>
-		<option name="url" value="http://pulse/hadleigh" />
+		<options>
+			<option name="url" value="http://pulse/hadleigh" />
+		</options>
 	</task>
 </hopkins>
