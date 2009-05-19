@@ -15,14 +15,18 @@ with the DBIx::Class schema creation.
 =cut
 
 use POE;
+use List::Object;
+use Class::Accessor::Fast;
 
 use Hopkins::Schema;
+
+use base 'Class::Accessor::Fast';
+
+__PACKAGE__->mk_accessors(qw(schema events));
 
 use constant HOPKINS_STORE_CONNECTION_CHECK_INTERVAL	=> 60;
 use constant HOPKINS_STORE_EVENT_PROC_INTERVAL			=> 60;
 use constant HOPKINS_STORE_EVENT_PROC_MAX_TIME			=> 20;
-
-my $schema;
 
 =head1 METHODS
 
@@ -34,13 +38,20 @@ my $schema;
 
 sub new
 {
+	my $self = shift->SUPER::new(@_);
+
+	$self->events(new List::Object);
+
 	POE::Session->create
 	(
-		inline_states =>
-		{
-			_start	=> \&start,
-			_stop	=> \&stop
-		}
+		object_states =>
+		[
+			$self =>
+			{
+				_start	=> 'start',
+				_stop	=> 'stop'
+			}
+		]
 	);
 }
 
@@ -56,10 +67,7 @@ sub new
 
 sub start
 {
-	my $kernel	= $_[KERNEL];
-	my $heap	= $_[HEAP];
-
-	$heap->{events} = [];
+	my $kernel = $_[KERNEL];
 
 	$kernel->alias_set('store');
 	$kernel->post(store => 'connchk');
@@ -79,12 +87,12 @@ sub stop
 
 sub connchk
 {
+	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
-	my $heap	= $_[HEAP];
 
 	#eval { $schema && $schema->ensure_connected }
-	if ($schema) {
-		if (!$schema->ensure_connected) {
+	if ($self->schema) {
+		if (!$self->schema->ensure_connected) {
 			Hopkins->log_error('lost connection to database');
 			$kernel->alarm('evtproc');
 			$kernel->post(store => 'connect');
@@ -99,6 +107,7 @@ sub connchk
 
 sub connect
 {
+	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 	my $heap	= $_[HEAP];
 
@@ -119,7 +128,7 @@ sub connect
 	# attempt to connect to the schema.  gracefully handle
 	# any exceptions that may occur.
 
-	my $schema2;
+	my $schema;
 
 	eval {
 		# DBIx::Class is lazy.  it will wait until the last
@@ -129,8 +138,8 @@ sub connect
 		# any errors, so we force the connection now with
 		# the storage object's ensure_connected method.
 
-		$schema2 = Hopkins::Schema->connect($dsn, $user, $pass, $opts);
-		$schema2->storage->ensure_connected;
+		$schema = Hopkins::Schema->connect($dsn, $user, $pass, $opts);
+		$schema->storage->ensure_connected;
 	};
 
 	# if the connection was successful, replace our existing
@@ -141,22 +150,22 @@ sub connect
 		Hopkins->log_debug('trying again in ' . HOPKINS_STORE_CONNECTION_CHECK_INTERVAL . ' seconds');
 	} else {
 		Hopkins->log_debug('successfully connected to schema');
-		$schema = $schema2;
+		$self->schema($schema);
 	}
 }
 
 sub evtproc
 {
+	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
-	my $heap	= $_[HEAP];
 
 	my $start = time;
 
-	while (scalar @{ $heap->{events} }) {
-		return if $start + HOPKINS_STORE_EVENT_PROC_MAX_TIME > time;
+	while ($self->events->count) {
+		last if $start + HOPKINS_STORE_EVENT_PROC_MAX_TIME > time;
 
-		my $aref	= $heap->{events}->[0];
-		my $res		= $kernel->call($aref->[0], $aref->[1..$#{$aref}]);
+		my $aref	= $self->events->shift;
+		my $res		= $kernel->call(store => $aref->[0] => $aref->[1..$#{$aref}]);
 	}
 
 	$kernel->alarm(evtproc => time + HOPKINS_STORE_EVENT_PROC_INTERVAL);
@@ -164,41 +173,44 @@ sub evtproc
 
 sub evtflush
 {
+	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 	my $heap	= $_[HEAP];
 
-	while (scalar @{ $heap->{events} }) {
-		my $aref	= $heap->{events}->[0];
-		my $res		= $kernel->call($aref->[0], $aref->[1..$#{$aref}]);
+	while ($self->events->count) {
+		my $aref	= $self->events->shift;
+		my $res		= $kernel->call(store => $aref->[0] => $aref->[1..$#{$aref}]);
 	}
 }
 
 sub notify
 {
+	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
-	my $heap	= $_[HEAP];
 
-	push @{ $heap->{events} }, [ @_ ];
+	$self->events->add([ @_ ]);
 }
 
 sub task_update
 {
+	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
-	my $heap	= $_[HEAP];
 	my $id		= $_[ARG0];
 	my $args	= { @_[ARG0..$#_] };
 
-	my $rsTask	= $schema->resultset('Task');
+	my $rsTask	= $self->schema->resultset('Task');
 	my $task	= $rsTask->find($id);
 
 	my $coderef = sub
 	{
-		foreach my $key (keys %$args) {
-			$kernel->call("$_[STATE]_$key", $args->{$key});
-		}
+		# XXX: no idea what i'm trying to do here :/
+
+		#foreach my $key (keys %$args) {
+		#	$kernel->call(store => "$_[STATE]_$key", $args->{$key});
+		#}
 	};
 
-	return $schema->txn_do($coderef);
+	return $self->schema->txn_do($coderef);
 }
 
 =back

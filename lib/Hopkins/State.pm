@@ -36,17 +36,18 @@ sub new
 
 	POE::Session->create
 	(
-		inline_states =>
-		{
-			_start  => \&start,
-			_stop   => \&stop,
+		object_states =>
+		[
+			$self =>
+			{
+				_start			=> 'start',
+				_stop			=> 'stop',
 
-			task_enqueued	=> \&task_enqueued,
-			task_stored		=> \&task_stored,
-			task_completed	=> \&task_completed
-		},
-
-		args => [ $self ]
+				task_enqueued	=> 'task_enqueued',
+				task_stored		=> 'task_stored',
+				task_completed	=> 'task_completed'
+			}
+		]
 	);
 
 	return $self;
@@ -54,47 +55,38 @@ sub new
 
 sub start
 {
+	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
-	my $heap	= $_[HEAP];
-	my $state	= $_[ARG0];
 
 	$kernel->alias_set('state');
-
-	$heap->{state} = $state;
 }
 
 sub stop
 {
-	my $kernel	= $_[KERNEL];
-	my $heap	= $_[HEAP];
-	my $state	= $_[ARG0];
+	my $self = $_[OBJECT];
 
-	#Hopkins->log_debug('state exiting');
+	Hopkins->log_debug('state exiting');
 }
 
 sub task_enqueued
 {
-	my $kernel	= $_[KERNEL];
-	my $heap	= $_[HEAP];
+	my $self	= $_[OBJECT];
 	my $task	= $_[ARG0];
-	my $state	= $heap->{state};
 
 	$task->id($ug->create_str);
 
-	$state->tasks->{$task->id} = $task;
+	$self->tasks->{$task->id} = $task;
 
 	return $task->id;
 }
 
 sub task_stored
 {
-	my $kernel	= $_[KERNEL];
-	my $heap	= $_[HEAP];
+	my $self	= $_[OBJECT];
 	my $id		= $_[ARG0];
 	my $row		= $_[ARG1];
-	my $state	= $heap->{state};
 
-	$state->tasks->{$id}->row($row);
+	$self->state->tasks->{$id}->row($row);
 }
 
 sub task_completed

@@ -39,11 +39,10 @@ __PACKAGE__->mk_accessors(qw(conf l4pconf scan poll manager));
 {
 	local $SIG{__WARN__} = sub { 1 };
 
-	# forcefully disable the debugging in several of the POE
-	# components.  the maintainer of these packages laughed
-	# at me when i told him he was an idiot for handling his
-	# debugging this way.  now i'm forced to clean up after
-	# his shit on my own.
+	# forcefully disable the unavoidable debugging output
+	# from several of the POE components.  also install a
+	# shortcut into the POE::Kernel namespace to retrieve
+	# the first alias returned by POE::Kernel->alias_list
 
 	eval q/
 		sub POE::Component::Server::SOAP::DEBUG () { 0 }
@@ -124,7 +123,7 @@ sub new
 	Hopkins->log_error("unable to load log4perl configuration file: $l4perr")
 		if $l4perr;
 
-	$self->manager(new Hopkins::Manager $self);
+	$self->manager(new Hopkins::Manager { hopkins => $self });
 
 	return $self;
 }

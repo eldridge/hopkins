@@ -48,17 +48,19 @@ sub new
 
 	POE::Session->create
 	(
-		inline_states => {
-			_start		=> sub { $self->start(@_) },
-			_stop		=> sub { $self->stop(@_) },
+		object_states =>
+		[
+			$self =>
+			{
+				_start		=> 'start',
+				_stop		=> 'stop',
 
-			stdout		=> sub { $self->status($_[ARG0]) },
-			stderr		=> sub { Hopkins->log_worker_stderr($self->work->task->name, $_[ARG0]) },
-			done		=> sub { $self->done(@_) },
-			shutdown	=> sub { $self->shutdown(@_) }
-		},
-
-		args => [ $self ]
+				stdout		=> 'stdout',
+				stderr		=> 'stderr',
+				done		=> 'done',
+				shutdown	=> 'shutdown'
+			}
+		]
 	);
 }
 
@@ -68,7 +70,7 @@ sub new
 
 sub inline
 {
-	my $self	= shift;
+	my $self	= $_[OBJECT];
 	my $class	= shift;
 	my $params	= shift || {};
 
@@ -105,7 +107,7 @@ sub inline
 
 sub start
 {
-	my $self		= shift;
+	my $self		= $_[OBJECT];
 	my $kernel		= $_[KERNEL];
 	my $heap		= $_[HEAP];
 
@@ -152,7 +154,7 @@ sub start
 
 sub stop
 {
-	my $self	= shift;
+	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 	my $heap	= $_[HEAP];
 
@@ -161,7 +163,7 @@ sub stop
 
 sub done
 {
-	my $self	= shift;
+	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 	my $signal	= $_[ARG0];
 	my $pid		= $_[ARG1];
@@ -184,13 +186,27 @@ sub done
 
 sub shutdown
 {
-	my $self	= shift;
+	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 
 	# we have to remove the session alias from the kernel,
 	# else POE will never destroy the session.
 
 	$kernel->alias_remove($self->alias);
+}
+
+sub stdout
+{
+	my $self = $_[OBJECT];
+
+	$self->status($_[ARG0]);
+}
+
+sub stderr
+{
+	my $self = $_[OBJECT];
+
+	Hopkins->log_worker_stderr($self->work->task->name, $_[ARG0]);
 }
 
 =back
