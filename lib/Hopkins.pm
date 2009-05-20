@@ -152,7 +152,7 @@ sub is_session_active
 	my $api			= new POE::API::Peek;
 	my @sessions	= map { POE::Kernel->alias($_) } $api->session_list;
 
-	Hopkins->log_debug("checking for session $name");
+	#Hopkins->log_debug("checking for session $name");
 
 	return scalar grep { $name eq $_ } @sessions;
 }

@@ -26,9 +26,9 @@ use base 'Class::Accessor::Fast';
 use constant HOPKINS_QUEUE_STATUS_WAIT_TIME		=> 1;
 use constant HOPKINS_QUEUE_STATUS_WAIT_ITER_MAX	=> 5;
 
-__PACKAGE__->mk_accessors(qw(kernel));
+__PACKAGE__->mk_accessors(qw(kernel manager soap config));
 
-my @methods =
+my @procedures =
 qw/
 	enqueue
 	status
@@ -36,6 +36,7 @@ qw/
 	queue_start_waitchk
 	queue_stop
 	queue_stop_waitchk
+	queue_flush
 /;
 
 =head1 METHODS
@@ -48,26 +49,26 @@ qw/
 
 sub new
 {
-	my $proto	= shift;
-	my $opts	= shift;
+	my $self = shift->SUPER::new(@_);
 
-	$opts->{port} ||= 8080;
+	$self->config({}) if not ref $self->config eq 'HASH';
 
-	my $self = $proto->SUPER::new($opts);
-
-	new POE::Component::Server::SOAP ALIAS => 'rpc.soap', ADDRESS => 0, PORT => $opts->{port};
+	$self->config->{address}	||= 0;
+	$self->config->{port}		||= 8080;
 
 	# create RPC session
 	POE::Session->create
 	(
-		inline_states => {
-			_start	=> \&start,
-			_stop	=> \&stop,
+		object_states =>
+		[
+			$self =>
+			{
+				_start	=> 'start',
+				_stop	=> 'stop',
 
-			map { $_ => \&$_ } @methods
-		},
-
-		args => [ $self ]
+				map { $_ => $_ } @procedures
+			}
+		]
 	);
 
 	return $self;
@@ -77,10 +78,8 @@ sub DESTROY
 {
 	my $self = shift;
 
-	print "DIE DIE DIE DIE DIE DIE DIE DIE DIE DIE DIE DIE!\n";
-
-	$self->kernel->post(soap	=> 'SHUTDOWN');
-	$self->kernel->post(rpc		=> 'shutdown');
+	$self->kernel->post('rpc.soap'	=> 'SHUTDOWN');
+	$self->kernel->post(rpc			=> 'shutdown');
 }
 
 =item start
@@ -89,14 +88,20 @@ sub DESTROY
 
 sub start
 {
+	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
-	my $self	= $_[ARG0];
 
-	$self->kernel($kernel);
+	my $args =
+	{
+		ALIAS	=> 'rpc.soap',
+		ADDRESS	=> $self->config->{address},
+		PORT	=> $self->config->{port}
+	};
+
+	$self->soap(new POE::Component::Server::SOAP %$args);
 
 	$kernel->alias_set('rpc');
-
-	$kernel->post('rpc.soap' => ADDMETHOD => rpc => $_) foreach @methods;
+	$kernel->post('rpc.soap' => ADDMETHOD => rpc => $_) foreach @procedures;
 }
 
 =item stop
@@ -107,7 +112,7 @@ sub stop
 {
 	my $kernel = $_[KERNEL];
 
-	$kernel->post('rpc.soap' => DELMETHOD => rpc => $_) foreach @methods;
+	$kernel->post('rpc.soap' => DELMETHOD => rpc => $_) foreach @procedures;
 }
 
 =item enqueue
@@ -178,13 +183,23 @@ sub status
 	my $kernel	= $_[KERNEL];
 	my $res		= $_[ARG0];
 
-	#my $now		= DateTime->now;
-	#my $schema	= Hopkins::Store->schema;
-	#my $rsTask	= $schema->resultset('Task');
+	my $status = {};
 
-	#$rsTask->search({ date_completed => undef });
+	foreach my $queue ($kernel->call(manager => 'queue_check_all')) {
+		$status->{queues}->{$queue->name} =
+		{
+			concurrency	=> $queue->concurrency,
+			queued		=> $queue->tasks->Length,
+			status		=> $queue->status_string
+		};
 
-	$res->content({ sessions => [ Hopkins->get_running_sessions ] });
+		$status->{queues}->{$queue->name}->{error} = $queue->error
+			if $queue->error;
+	}
+
+	$status->{sessions} = [ Hopkins->get_running_sessions ];
+
+	$res->content($status);
 
 	$kernel->post('rpc.soap' => DONE => $res);
 }
@@ -209,8 +224,8 @@ sub queue_start
 		# the queue was spawned; the only thing to do
 		# now is wait until that session shows itself.
 
-		$rv == HOPKINS_QUEUE_STARTED
-		and do {
+		$rv == HOPKINS_QUEUE_STARTED and do
+		{
 			$kernel->alarm(queue_start_waitchk => time + HOPKINS_QUEUE_STATUS_WAIT_TIME, $res, $name, 0);
 			last;
 		};
@@ -219,8 +234,8 @@ sub queue_start
 		# DONE event to the soap session.  this will cause a
 		# SOAP response to be sent back to the client.
 
-		$rv == HOPKINS_QUEUE_ALREADY_RUNNING
-		and do {
+		$rv == HOPKINS_QUEUE_ALREADY_RUNNING and do
+		{
 			$res->content({ success => 1 });
 			$kernel->post('rpc.soap' => DONE => $res);
 			last;
@@ -231,8 +246,8 @@ sub queue_start
 		# this will cause a SOAP response to be sent back to
 		# the client.
 
-		$rv == HOPKINS_QUEUE_NOT_FOUND
-		and do {
+		$rv == HOPKINS_QUEUE_NOT_FOUND and do
+		{
 			$res->content({ success => 0, err => "invalid queue $name" });
 			$kernel->post('rpc.soap' => DONE => $res);
 			last;
@@ -249,6 +264,7 @@ sub queue_start
 
 sub queue_start_waitchk
 {
+	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 	my $res		= $_[ARG0];
 	my $name	= $_[ARG1];
@@ -256,7 +272,9 @@ sub queue_start_waitchk
 
 	Hopkins->log_debug("queue_start_waitchk: checking status of queue $name");
 
-	if (Hopkins::Queue->is_running($name)) {
+	my $queue = $self->manager->queue($name);
+
+	if ($queue && $queue->status == HOPKINS_QUEUE_STATUS_RUNNING) {
 		# the session was located; the queue is now running.
 		#
 		# post a DONE event to the soap session; this will
@@ -301,12 +319,13 @@ sub queue_stop
 
 	Hopkins->log_debug("queue_stop request received from $client for $name");
 
-	$kernel->call("queue.$name" => 'stop');
+	$kernel->post(manager => queue_stop => $name);
 	$kernel->alarm(queue_stop_waitchk => time + HOPKINS_QUEUE_STATUS_WAIT_TIME, $res, $name, 0);
 }
 
 sub queue_stop_waitchk
 {
+	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 	my $res		= $_[ARG0];
 	my $name	= $_[ARG1];
@@ -314,7 +333,9 @@ sub queue_stop_waitchk
 
 	Hopkins->log_debug("queue_stop_waitchk: checking status of queue $name");
 
-	if (not Hopkins::Queue->is_running($name)) {
+	my $queue = $self->manager->queue($name);
+
+	if (not $queue or $queue->status == HOPKINS_QUEUE_STATUS_HALTED) {
 		# the session is gone; the queue is now stopped.
 		#
 		# post a DONE event to the soap session; this will
@@ -334,6 +355,7 @@ sub queue_stop_waitchk
 			# error to the client.
 
 			$res->content({ success => 0, err => "unable to stop $name" });
+			$kernel->post('rpc.soap' => DONE => $res);
 		} else {
 			# else we'll go another round.  set a kernel
 			# alarm for the appropriate time.
@@ -341,6 +363,26 @@ sub queue_stop_waitchk
 			$kernel->alarm(queue_stop_waitchk => time + HOPKINS_QUEUE_STATUS_WAIT_TIME, $res, $name, ++$iter);
 		}
 	}
+}
+
+sub queue_flush
+{
+	my $kernel	= $_[KERNEL];
+	my $res		= $_[ARG0];
+
+	# grab the client, the SOAP parameters, and the name of
+	# the queue that we've been requested to start up.
+
+	my $client	= $res->connection->remote_ip;
+	my $params	= $res->soapbody;
+	my ($name)	= map { $params->{$_} } sort keys %$params;
+
+	Hopkins->log_debug("queue_flush request received from $client for $name");
+
+	$kernel->post(manager => queue_flush => $name);
+
+	$res->content({ success => 1 });
+	$kernel->post('rpc.soap' => DONE => $res);
 }
 
 =back

@@ -74,9 +74,12 @@ sub new
 				init_store		=> 'init_store',
 				init_state		=> 'init_state',
 
+				queue_check_all	=> 'queue_check_all',
 				queue_check		=> 'queue_check',
 				queue_start		=> 'queue_start',
+				queue_stop		=> 'queue_stop',
 				queue_failure	=> 'queue_failure',
+				queue_flush		=> 'queue_flush',
 
 				scheduler		=> 'scheduler',
 				enqueue			=> 'enqueue',
@@ -138,6 +141,10 @@ sub init_queues
 	# up to the manager session.
 
 	foreach my $name ($self->config->get_queue_names) {
+		my $opts = $self->config->get_queue_info($name);
+
+		$self->queues->{$name} = new Hopkins::Queue { kernel => $kernel, %$opts };
+
 		$kernel->post(manager => queue_start => $name);
 	}
 }
@@ -147,15 +154,23 @@ sub queue_start
 	my $self	= $_[OBJECT];
 	my $name	= $_[ARG0];
 
-	return HOPKINS_QUEUE_ALREADY_RUNNING if exists $self->queues->{$name};
+	my $queue = $self->queue($name);
 
-	if (my $opts = $self->config->get_queue_info($name)) {
-		$self->queues->{$name} = new Hopkins::Queue $opts;
-	} else {
-		return HOPKINS_QUEUE_NOT_FOUND;
-	}
+	return HOPKINS_QUEUE_NOT_FOUND			if not defined $queue;
+	return HOPKINS_QUEUE_ALREADY_RUNNING	if $queue->is_running;
+
+	$queue->start;
 
 	return HOPKINS_QUEUE_STARTED;
+}
+
+sub queue_stop
+{
+	my $self	= $_[OBJECT];
+	my $name	= $_[ARG0];
+	my $queue	= $self->queue($name);
+
+	$queue->halt if $queue;
 }
 
 sub queue_check
@@ -165,6 +180,45 @@ sub queue_check
 
 	return $self->queues->{$name};
 }
+
+sub queue_check_all
+{
+	my $self = $_[OBJECT];
+
+	return values %{ $self->queues };
+}
+
+sub queue_flush
+{
+	my $self = $_[OBJECT];
+	my $name = $_[ARG0];
+
+	$self->queue($name)->flush;
+}
+
+=item queue_failure
+
+=cut
+
+sub queue_failure
+{
+	my $self	= $_[OBJECT];
+	my $kernel	= $_[KERNEL];
+	my $queue	= $_[ARG0];
+	my $error	= $_[ARG1];
+
+	my $msg = 'task failure in ' . $queue->name . ' queue';
+
+	if ($queue->onerror eq 'halt') {
+		$msg .= '; halting queue';
+
+		$queue->error($error);
+		$queue->halt;
+	}
+
+	Hopkins->log_error($msg);
+}
+
 
 =item init_store
 
@@ -218,6 +272,7 @@ sub init_plugins
 
 	foreach my $name ($config->get_plugin_names) {
 		if (not exists $plugins->{$name}) {
+			my $options	= $config->get_plugin_info($name);
 			my $package = $name =~ /^\+/ ? $name : "Hopkins::Plugin::$name";
 			my $path	= $package;
 
@@ -225,7 +280,7 @@ sub init_plugins
 
 			require "$path.pm";
 
-			$plugins->{$name} = $package->new($config->get_plugin_info($name));
+			$plugins->{$name} = $package->new({ manager => $self, config => $options });
 		}
 	}
 }
@@ -379,6 +434,8 @@ sub enqueue
 
 	my $work = new Hopkins::Work { task => $task, queue => $queue };
 
+	$queue->tasks->Push($work);
+
 	$kernel->call(state => task_enqueued => $work);
 
 	# post one of two enqueue events, depending on whether
@@ -392,26 +449,6 @@ sub enqueue
 	return HOPKINS_ENQUEUE_OK;
 }
 
-=item queue_failure
-
-=cut
-
-sub queue_failure
-{
-	my $self	= $_[OBJECT];
-	my $kernel	= $_[KERNEL];
-	my $queue	= $_[ARG0];
-
-	my $msg = 'task failure in ' . $queue->name . ' queue';
-
-	if ($queue->onerror eq 'halt') {
-		$msg .= '; halting queue';
-		$kernel->post($queue->alias => 'stop');
-	}
-
-	Hopkins->log_error($msg);
-}
-
 sub dequeue
 {
 	my $self	= $_[OBJECT];
@@ -420,6 +457,8 @@ sub dequeue
 	my $work	= $params->[0];
 
 	Hopkins->log_debug('dequeued task ' . $work->task->name . ' (' . $work->id . ')');
+
+	$work->queue->tasks->Delete($work);
 
 	#my $now		= DateTime->now;
 	#my $state	= $heap->{state};
@@ -445,6 +484,14 @@ sub taskstart
 	#$kernel->post(store => 'notify', 'task_update', $id, status => 'running');
 
 	print STDERR "HOLY ASSCOW\n";
+}
+
+sub queue
+{
+	my $self = shift;
+	my $name = shift;
+
+	return $self->queues->{$name};
 }
 
 =back

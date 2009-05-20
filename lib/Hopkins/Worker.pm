@@ -62,6 +62,8 @@ sub new
 			}
 		]
 	);
+
+	return $self;
 }
 
 =item closure
@@ -173,14 +175,23 @@ sub done
 
 	Hopkins->log_debug("child process $pid exited with status $status");
 
-	if ($self->status->{error}) {
-		Hopkins->log_error('worker failure executing ' . $self->work->task->name);
-		$kernel->call(manager => queue_failure => $self->work->queue);
+	if ($self->status) {
+		if ($self->status->{error}) {
+			Hopkins->log_error('worker failure executing ' . $self->work->task->name);
+			$kernel->call(manager => queue_failure => $self->work->queue, $self->status->{error});
+		} else {
+			Hopkins->log_info('worker successfully executed ' . $self->work->task->name);
+		}
 	} else {
-		Hopkins->log_info('worker successfully executed ' . $self->work->task->name);
+		use Data::Dumper;
+		$Data::Dumper::Indent = 1;
+		Hopkins->log_error('worker did not report a status!');
+		Hopkins->log_error(Dumper $self);
 	}
 
 	$self->postback->($pid, $status);
+	$self->child(undef);
+	$kernel->sig('CHLD');
 	$kernel->yield('shutdown');
 }
 

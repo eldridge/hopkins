@@ -15,14 +15,15 @@ each configured hopkins queue.
 =cut
 
 use POE;
-
+use Tie::IxHash;
 use Class::Accessor::Fast;
 
+use Hopkins::Constants;
 use Hopkins::Worker;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(name alias onerror onfatal concurrency));
+__PACKAGE__->mk_accessors(qw(kernel config name alias onerror onfatal concurrency tasks halted error));
 
 =head1 STATES
 
@@ -36,9 +37,19 @@ sub new
 {
 	my $self = shift->SUPER::new(@_);
 
-	Hopkins->log_debug('spawning queue ' . $self->name);
+	Hopkins->log_debug('creating queue ' . $self->name);
 
 	$self->alias('queue.' . $self->name);
+	$self->tasks(new Tie::IxHash);
+
+	return $self;
+}
+
+sub start
+{
+	my $self = shift;
+
+	Hopkins->log_debug('spawning queue ' . $self->name);
 
 	POE::Component::JobQueue->spawn
 	(
@@ -47,6 +58,12 @@ sub new
 		Worker		=> sub { $self->spawn_worker(@_) },
 		Passive		=> { Prioritizer => \&Hopkins::Queue::prioritize },
 	);
+
+	$self->error(undef);
+
+	foreach my $work ($self->tasks->Keys) {
+		$self->kernel->post($self->alias => enqueue => dequeue => $work);
+	}
 
 	# this passive queue will act as an on-demand task
 	# execution queue, waiting for enqueue events to be
@@ -76,8 +93,6 @@ sub new
 	#		AckState		=> \&job_completed
 	#	}
 	#);
-
-	return $self;
 }
 
 =item prioritize
@@ -112,7 +127,36 @@ sub is_running
 	my $self = shift;
 	my $name = shift;
 
-	return Hopkins->is_session_active("queue.$name");
+	return Hopkins->is_session_active($self->alias);
+}
+
+=item status
+
+=cut
+
+sub status
+{
+	my $self = shift;
+
+	return HOPKINS_QUEUE_STATUS_RUNNING		if $self->is_running;
+	return HOPKINS_QUEUE_STATUS_HALTED		if $self->halted;
+
+	return HOPKINS_QUEUE_STATUS_CRASHED;
+}
+
+=item status_string
+
+=cut
+
+sub status_string
+{
+	my $self = shift;
+
+	for ($self->status) {
+		$_ == HOPKINS_QUEUE_STATUS_RUNNING		&& return 'running';
+		$_ == HOPKINS_QUEUE_STATUS_HALTED		&& return 'halted';
+		$_ == HOPKINS_QUEUE_STATUS_CRASHED		&& return 'crashed';
+	}
 }
 
 =item spawn_worker
@@ -132,6 +176,35 @@ sub spawn_worker
 
 	new Hopkins::Worker $args;
 }
+
+=item flush
+
+=cut
+
+sub flush
+{
+	my $self = shift;
+
+	$self->tasks->Delete($self->tasks->Keys);
+}
+
+=item stop
+
+=cut
+
+sub halt
+{
+	my $self = shift;
+
+	$self->kernel->post($self->alias => 'stop');
+	$self->halted(1);
+}
+
+=item DESTROY
+
+=cut
+
+sub DESTROY { shift->halt }
 
 =back
 
