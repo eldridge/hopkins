@@ -104,9 +104,11 @@ sub handler
 		enqueue	=> \&hopkins_enqueue,
 		queue	=>
 		{
-			start	=> sub { return $proxy->queue_start(shift) },
-			halt	=> sub { return $proxy->queue_halt(shift) },
-			flush	=> sub { return $proxy->queue_flush(shift) }
+			start		=> sub { return $proxy->queue_start(shift) },
+			flush		=> sub { return $proxy->queue_flush(shift) },
+			halt		=> sub { return $proxy->queue_halt(shift) },
+			freeze		=> sub { return $proxy->queue_freeze(shift) },
+			shutdown	=> sub { return $proxy->queue_shutdown(shift) }
 		}
 	};
 

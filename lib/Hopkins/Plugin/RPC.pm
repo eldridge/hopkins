@@ -34,8 +34,10 @@ qw/
 	status
 	queue_start
 	queue_start_waitchk
-	queue_stop
+	queue_halt
 	queue_stop_waitchk
+	queue_freeze
+	queue_shutdown
 	queue_flush
 /;
 
@@ -154,8 +156,19 @@ sub enqueue
 			last;
 		};
 
-		# the queue isn't running, so we can't enqueue
+		# the queue has been frozen, so we can't enqueue
 		# anything to it.  tell the client to piss off.
+
+		$rv == HOPKINS_ENQUEUE_QUEUE_FROZEN
+		and do {
+			Hopkins->log_error("unable to enqueue $name: queue is frozen");
+			$res->content({ success => 0, err => "unable to enqueue $name: queue is frozen" });
+			last;
+		};
+
+		# the queue isn't even in the same dimension as we
+		# are, so we can't enqueue anything to it.  tell the
+		# client to piss off.
 
 		$rv == HOPKINS_ENQUEUE_QUEUE_UNAVAILABLE
 		and do {
@@ -304,7 +317,7 @@ sub queue_start_waitchk
 	}
 }
 
-sub queue_stop
+sub queue_halt
 {
 	my $kernel	= $_[KERNEL];
 	my $res		= $_[ARG0];
@@ -317,9 +330,9 @@ sub queue_stop
 	my $params	= $res->soapbody;
 	my ($name)	= map { $params->{$_} } sort keys %$params;
 
-	Hopkins->log_debug("queue_stop request received from $client for $name");
+	Hopkins->log_debug("queue halt request received from $client for $name");
 
-	$kernel->post(manager => queue_stop => $name);
+	$kernel->post(manager => queue_halt => $name);
 	$kernel->alarm(queue_stop_waitchk => time + HOPKINS_QUEUE_STATUS_WAIT_TIME, $res, $name, 0);
 }
 
@@ -335,7 +348,7 @@ sub queue_stop_waitchk
 
 	my $queue = $self->manager->queue($name);
 
-	if (not $queue or $queue->status == HOPKINS_QUEUE_STATUS_HALTED) {
+	if (not $queue or not $queue->is_running) {
 		# the session is gone; the queue is now stopped.
 		#
 		# post a DONE event to the soap session; this will
@@ -363,6 +376,42 @@ sub queue_stop_waitchk
 			$kernel->alarm(queue_stop_waitchk => time + HOPKINS_QUEUE_STATUS_WAIT_TIME, $res, $name, ++$iter);
 		}
 	}
+}
+
+sub queue_freeze
+{
+	my $kernel	= $_[KERNEL];
+	my $res		= $_[ARG0];
+
+	# grab the client, the SOAP parameters, and the name of
+	# the queue that we've been requested to start up.
+
+	my $client	= $res->connection->remote_ip;
+	my $params	= $res->soapbody;
+	my ($name)	= map { $params->{$_} } sort keys %$params;
+
+	Hopkins->log_debug("queue freeze request received from $client for $name");
+
+	$kernel->post(manager => queue_freeze => $name);
+	$kernel->alarm(queue_stop_waitchk => time + HOPKINS_QUEUE_STATUS_WAIT_TIME, $res, $name, 0);
+}
+
+sub queue_shutdown
+{
+	my $kernel	= $_[KERNEL];
+	my $res		= $_[ARG0];
+
+	# grab the client, the SOAP parameters, and the name of
+	# the queue that we've been requested to start up.
+
+	my $client	= $res->connection->remote_ip;
+	my $params	= $res->soapbody;
+	my ($name)	= map { $params->{$_} } sort keys %$params;
+
+	Hopkins->log_debug("queue shutdown request received from $client for $name");
+
+	$kernel->post(manager => queue_shutdown => $name);
+	$kernel->alarm(queue_stop_waitchk => time + HOPKINS_QUEUE_STATUS_WAIT_TIME, $res, $name, 0);
 }
 
 sub queue_flush

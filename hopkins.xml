@@ -26,6 +26,10 @@
 		<concurrency>16</concurrency>
 	</queue>
 
+	<queue name="feeds">
+		<concurrency>4</concurrency>
+	</queue>
+
 	<queue name="orderproc" onerror="halt" onfatal="halt">
 		<concurrency>1</concurrency>
 	</queue>

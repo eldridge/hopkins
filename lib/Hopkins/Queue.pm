@@ -23,7 +23,7 @@ use Hopkins::Worker;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(kernel config name alias onerror onfatal concurrency tasks halted error));
+__PACKAGE__->mk_accessors(qw(kernel config name alias onerror onfatal concurrency tasks halted frozen error));
 
 =head1 STATES
 
@@ -41,6 +41,10 @@ sub new
 
 	$self->alias('queue.' . $self->name);
 	$self->tasks(new Tie::IxHash);
+
+	$self->onerror(undef)
+		unless grep { $self->onerror eq $_ }
+		qw(halt freeze shutdown flush);
 
 	return $self;
 }
@@ -60,6 +64,8 @@ sub start
 	);
 
 	$self->error(undef);
+	$self->halted(0);
+	$self->frozen(0);
 
 	foreach my $work ($self->tasks->Keys) {
 		$self->kernel->post($self->alias => enqueue => dequeue => $work);
@@ -138,10 +144,16 @@ sub status
 {
 	my $self = shift;
 
-	return HOPKINS_QUEUE_STATUS_RUNNING		if $self->is_running;
-	return HOPKINS_QUEUE_STATUS_HALTED		if $self->halted;
+	return HOPKINS_QUEUE_STATUS_RUNNING
+		if $self->is_running;
 
-	return HOPKINS_QUEUE_STATUS_CRASHED;
+	return HOPKINS_QUEUE_STATUS_HALTED
+		if $self->halted && !$self->frozen;
+
+	return HOPKINS_QUEUE_STATUS_FROZEN
+		if $self->frozen;
+
+	return HOPKINS_QUEUE_STATUS_SHUTDOWN;
 }
 
 =item status_string
@@ -155,7 +167,8 @@ sub status_string
 	for ($self->status) {
 		$_ == HOPKINS_QUEUE_STATUS_RUNNING		&& return 'running';
 		$_ == HOPKINS_QUEUE_STATUS_HALTED		&& return 'halted';
-		$_ == HOPKINS_QUEUE_STATUS_CRASHED		&& return 'crashed';
+		$_ == HOPKINS_QUEUE_STATUS_FROZEN		&& return 'frozen';
+		$_ == HOPKINS_QUEUE_STATUS_SHUTDOWN		&& return 'shutdown';
 	}
 }
 
@@ -185,10 +198,15 @@ sub flush
 {
 	my $self = shift;
 
+	$self->stop;
 	$self->tasks->Delete($self->tasks->Keys);
+	$self->start;
 }
 
-=item stop
+=item halt
+
+halts the queue.  no tasks will be executed, although tasks
+may still be enqueued.
 
 =cut
 
@@ -196,15 +214,60 @@ sub halt
 {
 	my $self = shift;
 
-	$self->kernel->post($self->alias => 'stop');
+	$self->stop;
 	$self->halted(1);
+	$self->frozen(0);
+}
+
+=item freeze
+
+freezes the queue.  no tasks will be executed and no more
+tasks will be enqueued.
+
+=cut
+
+sub freeze
+{
+	my $self = shift;
+
+	$self->halt;
+	$self->frozen(1);
+}
+
+=item shutdown
+
+shuts the queue down, flushing any queued tasks.  no more
+tasks will be executed and no further tasks may be enqueud.
+
+=cut
+
+sub shutdown
+{
+	my $self = shift;
+
+	$self->flush;
+	$self->freeze;
+}
+
+=item stop
+
+stops the queue, shutting down the PoCo::JobQueue session
+if running by sending a stop event to it.
+
+=cut
+
+sub stop
+{
+	my $self = shift;
+
+	$self->kernel->post($self->alias => 'stop');
 }
 
 =item DESTROY
 
 =cut
 
-sub DESTROY { shift->halt }
+sub DESTROY { shift->shutdown }
 
 =back
 

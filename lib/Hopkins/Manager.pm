@@ -76,10 +76,12 @@ sub new
 
 				queue_check_all	=> 'queue_check_all',
 				queue_check		=> 'queue_check',
-				queue_start		=> 'queue_start',
-				queue_stop		=> 'queue_stop',
 				queue_failure	=> 'queue_failure',
+				queue_start		=> 'queue_start',
 				queue_flush		=> 'queue_flush',
+				queue_halt		=> 'queue_halt',
+				queue_freeze	=> 'queue_freeze',
+				queue_shutdown	=> 'queue_shutdown',
 
 				scheduler		=> 'scheduler',
 				enqueue			=> 'enqueue',
@@ -164,13 +166,31 @@ sub queue_start
 	return HOPKINS_QUEUE_STARTED;
 }
 
-sub queue_stop
+sub queue_halt
 {
 	my $self	= $_[OBJECT];
 	my $name	= $_[ARG0];
 	my $queue	= $self->queue($name);
 
 	$queue->halt if $queue;
+}
+
+sub queue_freeze
+{
+	my $self	= $_[OBJECT];
+	my $name	= $_[ARG0];
+	my $queue	= $self->queue($name);
+
+	$queue->freeze if $queue;
+}
+
+sub queue_shutdown
+{
+	my $self	= $_[OBJECT];
+	my $name	= $_[ARG0];
+	my $queue	= $self->queue($name);
+
+	$queue->shutdown if $queue;
 }
 
 sub queue_check
@@ -190,10 +210,11 @@ sub queue_check_all
 
 sub queue_flush
 {
-	my $self = $_[OBJECT];
-	my $name = $_[ARG0];
+	my $self	= $_[OBJECT];
+	my $name	= $_[ARG0];
+	my $queue	= $self->queue($name);
 
-	$self->queue($name)->flush;
+	$queue->flush if $queue;
 }
 
 =item queue_failure
@@ -209,16 +230,12 @@ sub queue_failure
 
 	my $msg = 'task failure in ' . $queue->name . ' queue';
 
-	if ($queue->onerror eq 'halt') {
-		$msg .= '; halting queue';
-
-		$queue->error($error);
-		$queue->halt;
+	if (my $action = $queue->onerror) {
+		$queue->$action($error);
 	}
 
 	Hopkins->log_error($msg);
 }
-
 
 =item init_store
 
@@ -421,11 +438,16 @@ sub enqueue
 		return HOPKINS_ENQUEUE_TASK_NOT_FOUND;
 	}
 
-	my $queue = $kernel->call(manager => queue_check => $task->queue);
+	my $queue = $self->queue($task->queue);
 
 	if (not defined $queue) {
-		Hopkins->log_warn("unable to enqueue $name; queue " . $task->queue . ' not running');
+		Hopkins->log_warn("unable to enqueue $name; queue " . $task->queue . ' not found');
 		return HOPKINS_ENQUEUE_QUEUE_UNAVAILABLE;
+	}
+
+	if ($queue->frozen) {
+		Hopkins->log_warn("unable to enqueue $name; queue " . $task->queue . ' frozen');
+		return HOPKINS_ENQUEUE_QUEUE_FROZEN;
 	}
 
 	# notify the state tracker that we're going to enqueue
