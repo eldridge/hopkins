@@ -100,13 +100,13 @@ sub handler
 
 	my $ref	= shift ||
 	{
-		status	=> \&hopkins_status,
+		status	=> sub { return $proxy->status },
 		enqueue	=> \&hopkins_enqueue,
 		queue	=>
 		{
 			start	=> sub { return $proxy->queue_start(shift) },
-			stop	=> sub { return $proxy->queue_stop(shift) },
-			status	=> sub { return $proxy->queue_status(shift) }
+			halt	=> sub { return $proxy->queue_halt(shift) },
+			flush	=> sub { return $proxy->queue_flush(shift) }
 		}
 	};
 
@@ -125,7 +125,7 @@ sub handler
 
 sub hopkins_status
 {
-	
+	return $proxy->status();
 }
 
 =item hopkins_enqueue
