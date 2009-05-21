@@ -23,8 +23,8 @@ use Hopkins::Constants;
 
 use base 'Class::Accessor::Fast';
 
-use constant HOPKINS_QUEUE_STATUS_WAIT_TIME		=> 1;
-use constant HOPKINS_QUEUE_STATUS_WAIT_ITER_MAX	=> 5;
+use constant HOPKINS_RPC_QUEUE_STATUS_WAIT_TIME		=> 1;
+use constant HOPKINS_RPC_QUEUE_STATUS_WAIT_ITER_MAX	=> 5;
 
 __PACKAGE__->mk_accessors(qw(kernel manager soap config));
 
@@ -33,12 +33,14 @@ qw/
 	enqueue
 	status
 	queue_start
-	queue_start_waitchk
 	queue_halt
-	queue_stop_waitchk
+	queue_continue
 	queue_freeze
+	queue_thaw
 	queue_shutdown
 	queue_flush
+	queue_start_waitchk
+	queue_stop_waitchk
 /;
 
 =head1 METHODS
@@ -239,7 +241,7 @@ sub queue_start
 
 		$rv == HOPKINS_QUEUE_STARTED and do
 		{
-			$kernel->alarm(queue_start_waitchk => time + HOPKINS_QUEUE_STATUS_WAIT_TIME, $res, $name, 0);
+			$kernel->alarm(queue_start_waitchk => time + HOPKINS_RPC_QUEUE_STATUS_WAIT_TIME, $res, $name, 0);
 			last;
 		};
 
@@ -275,48 +277,6 @@ sub queue_start
 	}
 }
 
-sub queue_start_waitchk
-{
-	my $self	= $_[OBJECT];
-	my $kernel	= $_[KERNEL];
-	my $res		= $_[ARG0];
-	my $name	= $_[ARG1];
-	my $iter	= $_[ARG2];
-
-	Hopkins->log_debug("queue_start_waitchk: checking status of queue $name");
-
-	my $queue = $self->manager->queue($name);
-
-	if ($queue && $queue->status == HOPKINS_QUEUE_STATUS_RUNNING) {
-		# the session was located; the queue is now running.
-		#
-		# post a DONE event to the soap session; this will
-		# cause a SOAP response to be sent back to the
-		# client.
-
-		$res->content({ success => 1 });
-		$kernel->post('rpc.soap' => DONE => $res);
-	} else {
-		# if the session wasn't found, we'll try to wait a
-		# bit for it to show up.  if we exceed the maximum
-		# number of wait iterations, we'll return an error
-		# to the client.
-
-		if ($iter > HOPKINS_QUEUE_STATUS_WAIT_ITER_MAX) {
-			# exceeded maximum wait iterations; return an
-			# error to the client.
-
-			$res->content({ success => 0, err => "unable to start queue $name" });
-			$kernel->post('rpc.soap' => DONE => $res);
-		} else {
-			# else we'll go another round.  set a kernel
-			# alarm for the appropriate time.
-
-			$kernel->alarm(queue_start_waitchk => time + HOPKINS_QUEUE_STATUS_WAIT_TIME, $res, $name, ++$iter);
-		}
-	}
-}
-
 sub queue_halt
 {
 	my $kernel	= $_[KERNEL];
@@ -333,7 +293,146 @@ sub queue_halt
 	Hopkins->log_debug("queue halt request received from $client for $name");
 
 	$kernel->post(manager => queue_halt => $name);
-	$kernel->alarm(queue_stop_waitchk => time + HOPKINS_QUEUE_STATUS_WAIT_TIME, $res, $name, 0);
+	$kernel->alarm(queue_stop_waitchk => time + HOPKINS_RPC_QUEUE_STATUS_WAIT_TIME, $res, $name, 0);
+}
+
+sub queue_continue
+{
+	my $kernel	= $_[KERNEL];
+	my $res		= $_[ARG0];
+
+	# grab the client, the SOAP parameters, the name of
+	# the queue that we've been requested to shutdown, and
+	# an instance of the POE instrospection API
+
+	my $client	= $res->connection->remote_ip;
+	my $params	= $res->soapbody;
+	my ($name)	= map { $params->{$_} } sort keys %$params;
+
+	Hopkins->log_debug("queue continue request received from $client for $name");
+
+	$kernel->post(manager => queue_continue => $name);
+	$kernel->alarm(queue_start_waitchk => time + HOPKINS_RPC_QUEUE_STATUS_WAIT_TIME, $res, $name, 0);
+}
+
+sub queue_freeze
+{
+	my $kernel	= $_[KERNEL];
+	my $res		= $_[ARG0];
+
+	# grab the client, the SOAP parameters, and the name of
+	# the queue that we've been requested to start up.
+
+	my $client	= $res->connection->remote_ip;
+	my $params	= $res->soapbody;
+	my ($name)	= map { $params->{$_} } sort keys %$params;
+
+	Hopkins->log_debug("queue freeze request received from $client for $name");
+
+	$kernel->post(manager => queue_freeze => $name);
+
+	$res->content({ success => 1 });
+	$kernel->post('rpc.soap' => DONE => $res);
+}
+
+sub queue_thaw
+{
+	my $kernel	= $_[KERNEL];
+	my $res		= $_[ARG0];
+
+	# grab the client, the SOAP parameters, and the name of
+	# the queue that we've been requested to start up.
+
+	my $client	= $res->connection->remote_ip;
+	my $params	= $res->soapbody;
+	my ($name)	= map { $params->{$_} } sort keys %$params;
+
+	Hopkins->log_debug("queue thaw request received from $client for $name");
+
+	$kernel->post(manager => queue_thaw => $name);
+
+	$res->content({ success => 1 });
+	$kernel->post('rpc.soap' => DONE => $res);
+}
+
+sub queue_shutdown
+{
+	my $kernel	= $_[KERNEL];
+	my $res		= $_[ARG0];
+
+	# grab the client, the SOAP parameters, and the name of
+	# the queue that we've been requested to start up.
+
+	my $client	= $res->connection->remote_ip;
+	my $params	= $res->soapbody;
+	my ($name)	= map { $params->{$_} } sort keys %$params;
+
+	Hopkins->log_debug("queue shutdown request received from $client for $name");
+
+	$kernel->post(manager => queue_shutdown => $name);
+	$kernel->alarm(queue_stop_waitchk => time + HOPKINS_RPC_QUEUE_STATUS_WAIT_TIME, $res, $name, 0);
+}
+
+sub queue_flush
+{
+	my $kernel	= $_[KERNEL];
+	my $res		= $_[ARG0];
+
+	# grab the client, the SOAP parameters, and the name of
+	# the queue that we've been requested to start up.
+
+	my $client	= $res->connection->remote_ip;
+	my $params	= $res->soapbody;
+	my ($name)	= map { $params->{$_} } sort keys %$params;
+
+	Hopkins->log_debug("queue_flush request received from $client for $name");
+
+	$kernel->post(manager => queue_flush => $name);
+
+	$res->content({ success => 1 });
+	$kernel->post('rpc.soap' => DONE => $res);
+}
+
+sub queue_start_waitchk
+{
+	my $self	= $_[OBJECT];
+	my $kernel	= $_[KERNEL];
+	my $res		= $_[ARG0];
+	my $name	= $_[ARG1];
+	my $iter	= $_[ARG2];
+
+	Hopkins->log_debug("queue_start_waitchk: checking status of queue $name");
+
+	my $queue = $self->manager->queue($name);
+
+	if ($queue && $queue->is_running) {
+		# the session was located; the queue is now running.
+		#
+		# post a DONE event to the soap session; this will
+		# cause a SOAP response to be sent back to the
+		# client.
+
+		$res->content({ success => 1 });
+		$kernel->post('rpc.soap' => DONE => $res);
+	} else {
+		# if the session wasn't found, we'll try to wait a
+		# bit for it to show up.  if we exceed the maximum
+		# number of wait iterations, we'll return an error
+		# to the client.
+
+		if ($iter > HOPKINS_RPC_QUEUE_STATUS_WAIT_ITER_MAX) {
+			# exceeded maximum wait iterations; return an
+			# error to the client.
+
+			$res->content({ success => 0, err => "unable to start queue $name" });
+			$kernel->post('rpc.soap' => DONE => $res);
+		} else {
+			# else we'll go another round.  set a kernel
+			# alarm for the appropriate time.
+
+			$kernel->alarm(queue_start_waitchk => time + HOPKINS_RPC_QUEUE_STATUS_WAIT_TIME, $res, $name, ++$iter);
+		}
+	}
 }
 
 sub queue_stop_waitchk
@@ -363,7 +462,7 @@ sub queue_stop_waitchk
 		# number of wait iterations, we'll return an error
 		# to the client.
 
-		if ($iter > HOPKINS_QUEUE_STATUS_WAIT_ITER_MAX) {
+		if ($iter > HOPKINS_RPC_QUEUE_STATUS_WAIT_ITER_MAX) {
 			# exceeded maximum wait iterations; return an
 			# error to the client.
 
@@ -373,65 +472,9 @@ sub queue_stop_waitchk
 			# else we'll go another round.  set a kernel
 			# alarm for the appropriate time.
 
-			$kernel->alarm(queue_stop_waitchk => time + HOPKINS_QUEUE_STATUS_WAIT_TIME, $res, $name, ++$iter);
+			$kernel->alarm(queue_stop_waitchk => time + HOPKINS_RPC_QUEUE_STATUS_WAIT_TIME, $res, $name, ++$iter);
 		}
 	}
-}
-
-sub queue_freeze
-{
-	my $kernel	= $_[KERNEL];
-	my $res		= $_[ARG0];
-
-	# grab the client, the SOAP parameters, and the name of
-	# the queue that we've been requested to start up.
-
-	my $client	= $res->connection->remote_ip;
-	my $params	= $res->soapbody;
-	my ($name)	= map { $params->{$_} } sort keys %$params;
-
-	Hopkins->log_debug("queue freeze request received from $client for $name");
-
-	$kernel->post(manager => queue_freeze => $name);
-	$kernel->alarm(queue_stop_waitchk => time + HOPKINS_QUEUE_STATUS_WAIT_TIME, $res, $name, 0);
-}
-
-sub queue_shutdown
-{
-	my $kernel	= $_[KERNEL];
-	my $res		= $_[ARG0];
-
-	# grab the client, the SOAP parameters, and the name of
-	# the queue that we've been requested to start up.
-
-	my $client	= $res->connection->remote_ip;
-	my $params	= $res->soapbody;
-	my ($name)	= map { $params->{$_} } sort keys %$params;
-
-	Hopkins->log_debug("queue shutdown request received from $client for $name");
-
-	$kernel->post(manager => queue_shutdown => $name);
-	$kernel->alarm(queue_stop_waitchk => time + HOPKINS_QUEUE_STATUS_WAIT_TIME, $res, $name, 0);
-}
-
-sub queue_flush
-{
-	my $kernel	= $_[KERNEL];
-	my $res		= $_[ARG0];
-
-	# grab the client, the SOAP parameters, and the name of
-	# the queue that we've been requested to start up.
-
-	my $client	= $res->connection->remote_ip;
-	my $params	= $res->soapbody;
-	my ($name)	= map { $params->{$_} } sort keys %$params;
-
-	Hopkins->log_debug("queue_flush request received from $client for $name");
-
-	$kernel->post(manager => queue_flush => $name);
-
-	$res->content({ success => 1 });
-	$kernel->post('rpc.soap' => DONE => $res);
 }
 
 =back

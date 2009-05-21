@@ -49,7 +49,7 @@ sub new
 	return $self;
 }
 
-sub start
+sub spawn
 {
 	my $self = shift;
 
@@ -62,10 +62,6 @@ sub start
 		Worker		=> sub { $self->spawn_worker(@_) },
 		Passive		=> { Prioritizer => \&Hopkins::Queue::prioritize },
 	);
-
-	$self->error(undef);
-	$self->halted(0);
-	$self->frozen(0);
 
 	foreach my $work ($self->tasks->Keys) {
 		$self->kernel->post($self->alias => enqueue => dequeue => $work);
@@ -99,6 +95,38 @@ sub start
 	#		AckState		=> \&job_completed
 	#	}
 	#);
+}
+
+=item stop
+
+stops the queue, shutting down the PoCo::JobQueue session
+if running by sending a stop event to it.
+
+=cut
+
+sub stop
+{
+	my $self = shift;
+
+	$self->kernel->post($self->alias => 'stop');
+}
+
+=item spawn_worker
+
+=cut
+
+sub spawn_worker
+{
+	my $self = shift;
+
+	my $args =
+	{
+		postback	=> shift,
+		work		=> shift,
+		queue		=> $self
+	};
+
+	new Hopkins::Worker $args;
 }
 
 =item prioritize
@@ -144,16 +172,10 @@ sub status
 {
 	my $self = shift;
 
-	return HOPKINS_QUEUE_STATUS_RUNNING
-		if $self->is_running;
+	return HOPKINS_QUEUE_STATUS_HALTED	if $self->halted;
+	return HOPKINS_QUEUE_STATUS_RUNNING	if $self->tasks->Length > 0;
 
-	return HOPKINS_QUEUE_STATUS_HALTED
-		if $self->halted && !$self->frozen;
-
-	return HOPKINS_QUEUE_STATUS_FROZEN
-		if $self->frozen;
-
-	return HOPKINS_QUEUE_STATUS_SHUTDOWN;
+	return HOPKINS_QUEUE_STATUS_IDLE;
 }
 
 =item status_string
@@ -165,42 +187,31 @@ sub status_string
 	my $self = shift;
 
 	for ($self->status) {
+		$_ == HOPKINS_QUEUE_STATUS_IDLE && return 'idle';
+
+		$_ == HOPKINS_QUEUE_STATUS_RUNNING && $self->frozen
+			&& return 'running (frozen)';
+
+		$_ == HOPKINS_QUEUE_STATUS_HALTED && $self->frozen
+			&& return 'halted (frozen)';
+
 		$_ == HOPKINS_QUEUE_STATUS_RUNNING		&& return 'running';
 		$_ == HOPKINS_QUEUE_STATUS_HALTED		&& return 'halted';
-		$_ == HOPKINS_QUEUE_STATUS_FROZEN		&& return 'frozen';
-		$_ == HOPKINS_QUEUE_STATUS_SHUTDOWN		&& return 'shutdown';
 	}
 }
 
-=item spawn_worker
+=item start
 
 =cut
 
-sub spawn_worker
+sub start
 {
 	my $self = shift;
 
-	my $args =
-	{
-		postback	=> shift,
-		work		=> shift,
-		queue		=> $self
-	};
+	$self->error(undef);
+	$self->halted(0);
 
-	new Hopkins::Worker $args;
-}
-
-=item flush
-
-=cut
-
-sub flush
-{
-	my $self = shift;
-
-	$self->stop;
-	$self->tasks->Delete($self->tasks->Keys);
-	$self->start;
+	$self->spawn;
 }
 
 =item halt
@@ -216,13 +227,27 @@ sub halt
 
 	$self->stop;
 	$self->halted(1);
-	$self->frozen(0);
+}
+
+=item continue
+
+reverses the action of halt by starting the queue back up.
+the existing state of the frozen flag will be preserved.
+
+=cut
+
+sub continue
+{
+	my $self = shift;
+
+	$self->start;
+	$self->halted(0);
 }
 
 =item freeze
 
-freezes the queue.  no tasks will be executed and no more
-tasks will be enqueued.
+freezes the queue.  no more tasks will be enqueued, but
+currently queued tasks will be allowed to execute.
 
 =cut
 
@@ -230,14 +255,29 @@ sub freeze
 {
 	my $self = shift;
 
-	$self->halt;
 	$self->frozen(1);
+}
+
+=item thaw
+
+reverses the action of freeze by unsetting the frozen flag.
+tasks will not be queable.  the existing halt state will be
+preserved.
+
+=cut
+
+sub thaw
+{
+	my $self = shift;
+
+	$self->frozen(0);
 }
 
 =item shutdown
 
-shuts the queue down, flushing any queued tasks.  no more
-tasks will be executed and no further tasks may be enqueud.
+shuts the queue down.  this is basically a shortcut for the
+freeze and halt actions.  no more tasks will be executed and
+no further tasks may be enqueud.
 
 =cut
 
@@ -245,22 +285,26 @@ sub shutdown
 {
 	my $self = shift;
 
-	$self->flush;
 	$self->freeze;
+	$self->halt;
 }
 
-=item stop
+=item flush
 
-stops the queue, shutting down the PoCo::JobQueue session
-if running by sending a stop event to it.
+flush the queue of any tasks waiting to execute.  stops the
+PoCo::JobQueue session (if running) and clears the internal
+list of tasks.  if the queue was running prior to the flush,
+the PoCo::JobQueue session is spun back up.
 
 =cut
 
-sub stop
+sub flush
 {
 	my $self = shift;
 
-	$self->kernel->post($self->alias => 'stop');
+	$self->stop;
+	$self->tasks->Delete($self->tasks->Keys);
+	$self->start if not $self->halted;
 }
 
 =item DESTROY

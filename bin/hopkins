@@ -105,10 +105,12 @@ sub handler
 		queue	=>
 		{
 			start		=> sub { return $proxy->queue_start(shift) },
-			flush		=> sub { return $proxy->queue_flush(shift) },
 			halt		=> sub { return $proxy->queue_halt(shift) },
+			continue	=> sub { return $proxy->queue_continue(shift) },
 			freeze		=> sub { return $proxy->queue_freeze(shift) },
-			shutdown	=> sub { return $proxy->queue_shutdown(shift) }
+			thaw		=> sub { return $proxy->queue_thaw(shift) },
+			shutdown	=> sub { return $proxy->queue_shutdown(shift) },
+			flush		=> sub { return $proxy->queue_flush(shift) }
 		}
 	};
 

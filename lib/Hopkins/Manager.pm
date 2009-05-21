@@ -78,10 +78,12 @@ sub new
 				queue_check		=> 'queue_check',
 				queue_failure	=> 'queue_failure',
 				queue_start		=> 'queue_start',
-				queue_flush		=> 'queue_flush',
 				queue_halt		=> 'queue_halt',
+				queue_continue	=> 'queue_continue',
 				queue_freeze	=> 'queue_freeze',
+				queue_thaw		=> 'queue_thaw',
 				queue_shutdown	=> 'queue_shutdown',
+				queue_flush		=> 'queue_flush',
 
 				scheduler		=> 'scheduler',
 				enqueue			=> 'enqueue',
@@ -175,6 +177,15 @@ sub queue_halt
 	$queue->halt if $queue;
 }
 
+sub queue_continue
+{
+	my $self	= $_[OBJECT];
+	my $name	= $_[ARG0];
+	my $queue	= $self->queue($name);
+
+	$queue->continue if $queue;
+}
+
 sub queue_freeze
 {
 	my $self	= $_[OBJECT];
@@ -182,6 +193,15 @@ sub queue_freeze
 	my $queue	= $self->queue($name);
 
 	$queue->freeze if $queue;
+}
+
+sub queue_thaw
+{
+	my $self	= $_[OBJECT];
+	my $name	= $_[ARG0];
+	my $queue	= $self->queue($name);
+
+	$queue->thaw if $queue;
 }
 
 sub queue_shutdown
