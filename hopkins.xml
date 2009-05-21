@@ -30,7 +30,7 @@
 		<concurrency>4</concurrency>
 	</queue>
 
-	<queue name="orderproc" onerror="halt" onfatal="halt">
+	<queue name="orderproc" onerror="halt">
 		<concurrency>1</concurrency>
 	</queue>
 
@@ -38,8 +38,8 @@
 		<concurrency>1</concurrency>
 	</queue>
 
-	<role>manager</role>
-	<role>worker</role>
+	<!-- <role>manager</role> -->
+	<!-- <role>worker</role> -->
 
 	<task name="Wait5">
 		<class>Greenspan::Job::Wait5</class>
@@ -53,25 +53,25 @@
 
 	<task name="ProductImageRefresh" run="serial" enabled="no">
 		<class>Greenspan::Job::ProductImageRefresh</class>
-		<prereq>ImageFetcher</prereq>
+		<!-- <prereq>ImageFetcher</prereq> -->
 		<schedule>*/10 * * * *</schedule>
 		<schedule>*/5 * * * *</schedule>
 		<queue>imageproc</queue>
 	</task>
 
-	<task name="GiftAnnouncementFulfillment" run="serial" active="no">
+	<task name="GiftAnnouncementFulfillment" run="serial" enabled="no">
 		<class>Greenspan::Job::Fulfiller::GiftAnnouncement</class>
 		<schedule>20 * * * *</schedule>
 		<queue>general</queue>
 	</task>
 
-	<task name="Charge" run="serial" active="no">
+	<task name="Charge" run="serial" enabled="no">
 		<class>Greenspan::Job::Die</class>
 		<schedule>*/2 * * * *</schedule>
 		<queue>orderproc</queue>
 	</task>
 
-	<task name="B2B Fulfillment: Network World Newsletters" run="serial" active="no">
+	<task name="B2B Fulfillment: Network World Newsletters" run="serial" enabled="no">
 		<class>Greenspan::Job::Fulfiller::B2B::FTP</class>
 		<schedule>0 0 * * 4</schedule>
 		<queue>fulfillment</queue>
@@ -90,7 +90,7 @@
 		<queue>general</queue>
 	</task>
 
-	<task name="AS/400 Sync" run="serial" active="yes">
+	<task name="AS/400 Sync" run="serial" enabled="yes">
 		<class>Greenspan::Job::AS400::Sync::Authorization</class>
 		<schedule>0 7 * * *</schedule>
 		<queue>orderproc</queue>
