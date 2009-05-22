@@ -40,6 +40,6 @@ build_requires 'Directory::Scratch';
 build_requires 'FindBin';
 build_requires 'Template';
 
-auto_install;
+#auto_install;
 WriteAll;
 
