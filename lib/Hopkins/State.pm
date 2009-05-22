@@ -18,13 +18,18 @@ may access this information.
 =cut
 
 use POE;
-
 use Class::Accessor::Fast;
+
+#use Cache;
 use Data::UUID;
+
+use Path::Class ();
+
+use Hopkins::State::Schema;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(tasks));
+__PACKAGE__->mk_accessors(qw(cache config schema));
 
 my $ug = new Data::UUID;
 
@@ -32,7 +37,21 @@ sub new
 {
 	my $self = shift->SUPER::new(@_);
 
-	$self->tasks({});
+	#$self->cache(new File::Cache cache_root => $self->config->{root});
+
+	my $dir		= new Path::Class::Dir $self->config->{root};
+	my $file	= $dir->file('state');
+
+	$file->touch;
+	my $schema	= Hopkins::State::Schema->connect("dbi:SQLite:dbname=$file");
+
+	$schema->deploy;
+
+	die $@ if not defined $schema;
+
+	my @work = $schema->resultset('Work')->all;
+
+	$self->schema(Hopkins::State::Schema->connect("dbi:SQLite:dbname=$file"));
 
 	POE::Session->create
 	(
@@ -59,6 +78,8 @@ sub start
 	my $kernel	= $_[KERNEL];
 
 	$kernel->alias_set('state');
+
+	# wake up periodically and write state to disk
 }
 
 sub stop
@@ -71,11 +92,12 @@ sub stop
 sub task_enqueued
 {
 	my $self	= $_[OBJECT];
+	my $kernel	= $_[KERNEL];
 	my $task	= $_[ARG0];
 
 	$task->id($ug->create_str);
 
-	$self->tasks->{$task->id} = $task;
+	#$self->tasks->{$task->id} = $task;
 
 	return $task->id;
 }
@@ -91,6 +113,11 @@ sub task_stored
 
 sub task_completed
 {
+}
+
+sub update
+{
+	
 }
 
 =back

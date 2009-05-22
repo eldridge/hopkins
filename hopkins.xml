@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <hopkins>
+	<state>
+		<root>/var/lib/hopkins</root>
+	</state>
+
 	<plugin name="HMI">
 		<port>8088</port>
 	</plugin>

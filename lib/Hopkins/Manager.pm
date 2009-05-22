@@ -272,7 +272,9 @@ sub init_store
 
 sub init_state
 {
-	new Hopkins::State;
+	my $self = shift;
+
+	new Hopkins::State { config => $self->config->fetch('state') };
 }
 
 =item init_config
