@@ -10,6 +10,15 @@ author			'Mike Eldridge <diz@cpan.org>';
 license			'perl';
 version_from	'lib/Hopkins.pm';
 
+# command line tools
+requires 'Getopt::Attribute'			=> '1.44';
+requires 'String::Escape'				=> '2002.001';
+
+# supporting classes
+requires 'List::Object'					=> '0.01';
+requires 'Tie::IxHash'					=> '1.21';
+requires 'Cache::File'					=> '2.04';
+
 # date manipulation and testing
 requires 'DateTime'						=> '0.37';
 requires 'DateTime::Event::MultiCron'	=> '0.01';
