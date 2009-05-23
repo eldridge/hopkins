@@ -22,6 +22,23 @@ use base 'Class::Accessor::Fast';
 
 __PACKAGE__->mk_accessors(qw(id task options queue date_enqueued date_to_execute date_started date_completed row));
 
+sub serialize
+{
+	my $self = shift;
+
+	return
+	{
+		id				=> $self->id,
+		task			=> $self->task->name,
+		options			=> $self->options,
+		date_enqueued	=> $self->date_enqueued->iso8601,
+		#date_to_execute	=> $self->date_to_execute->iso8601,
+		date_started	=> $self->date_started ? $self->date_started->iso8601 : undef,
+		date_completed	=> $self->date_completed ? $self->date_completed->iso8601 : undef,
+		row				=> $self->row ? $self->row->id : undef
+	};
+}
+
 =back
 
 =head1 AUTHOR

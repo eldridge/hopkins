@@ -80,6 +80,18 @@ sub load
 
 	$status->parsed(1);
 
+	if (my $root = $config->{state}->{root}) {
+		$config->{state}->{root} = new Path::Class::Dir $root;
+		eval { $config->{state}->{root}->mkpath(0, 0700) };
+		if (my $err = $@) {
+			Hopkins->log_error("unable to create $root: $@");
+			$status->failed(1);
+		}
+	} else {
+		Hopkins->log_error('no root directory defined for state information');
+		$status->failed(1)
+	}
+
 	# process any cron-like schedules
 	foreach my $name (keys %{ $config->{task} }) {
 		my $href = $config->{task}->{$name};

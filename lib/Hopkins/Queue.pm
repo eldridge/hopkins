@@ -15,15 +15,18 @@ each configured hopkins queue.
 =cut
 
 use POE;
-use Tie::IxHash;
 use Class::Accessor::Fast;
+
+use Cache::FileCache;
+use DateTime::Format::ISO8601;
+use Tie::IxHash;
 
 use Hopkins::Constants;
 use Hopkins::Worker;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(kernel config name alias onerror onfatal concurrency tasks halted frozen error));
+__PACKAGE__->mk_accessors(qw(kernel config cache name alias onerror onfatal concurrency tasks halted frozen error));
 
 =head1 STATES
 
@@ -45,6 +48,92 @@ sub new
 	$self->onerror(undef)
 		unless grep { $self->onerror eq $_ }
 		qw(halt freeze shutdown flush);
+
+	$self->cache(new Cache::FileCache {
+		 cache_root			=> $self->config->fetch('state/root')->stringify,
+		 namespace			=> 'queue/' . $self->name,
+		 directory_umask	=> 0077
+	});
+
+	if (my $flag = $self->cache->get('frozen')) {
+		$self->frozen($flag eq '1' ? 1 : 0);
+	}
+
+	if (my $flag = $self->cache->get('halted')) {
+		$self->halted($flag eq '1' ? 1 : 0);
+	}
+
+	$self->error($self->cache->get('error'));
+
+	if (my $tasks = $self->cache->get('tasks')) {
+		last if not ref $tasks eq 'ARRAY';
+
+		foreach my $href (@$tasks) {
+			my $work = new Hopkins::Work;
+			my $date = undef;
+
+			eval { $date = DateTime::Format::ISO8601->parse_datetime($href->{date_enqueued}) };
+
+			if (my $err = $@) {
+				Hopkins->log_error('unable to parse date/time information when reading state');
+				next;
+			} else {
+				$work->date_enqueued($date);
+			}
+
+			# FIXME: date_to_execute not yet implemented
+
+			#eval { $date = DateTime::Format::ISO8601->parse_datetime($href->{date_to_execute}) };
+
+			#if (my $err = $@) {
+			#	Hopkins->log_error('unable to parse date/time information when reading state');
+			#	next;
+			#} else {
+			#	$work->date_to_execute($date);
+			#}
+
+			if (my $val = $href->{date_started}) {
+				eval { $date = DateTime::Format::ISO8601->parse_datetime($href->{date_started}) };
+
+				if (my $err = $@) {
+					Hopkins->log_error('unable to parse date/time information when reading state');
+					next;
+				} else {
+					$work->date_started($date);
+				}
+			}
+
+			if (my $task = $self->config->get_task_info($href->{task})) {
+				$work->task($task);
+			} else {
+				Hopkins->log_error("unable to locate task '$href->{task}' when reading state");
+				next;
+			}
+
+			if (my $id = $href->{id}) {
+				$work->id($id);
+			} else {
+				Hopkins->log_error('unable to determine task ID when reading state');
+				next;
+			}
+
+			$work->queue($self);
+			$work->options($href->{options});
+
+			# FIXME: work->row not yet implemented
+			#$work->row
+
+			if (not defined $work->date_started) {
+				$self->tasks->Push($work);
+			} else {
+				# it was already started, but we don't know
+				# what happened to it.  assume that it
+				# failed and post an error event.
+
+				# FIXME: do this
+			}
+		}
+	}
 
 	return $self;
 }
@@ -95,6 +184,22 @@ sub spawn
 	#		AckState		=> \&job_completed
 	#	}
 	#);
+}
+
+=item write_state
+
+write the queue's state to disk.
+
+=cut
+
+sub write_state
+{
+	my $self = shift;
+
+	$self->cache->set(frozen => $self->frozen);
+	$self->cache->set(halted => $self->halted);
+	$self->cache->set(error => $self->error);
+	$self->cache->set(tasks => [ map { $_->serialize } $self->tasks->Keys ]);
 }
 
 =item stop

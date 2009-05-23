@@ -18,6 +18,9 @@ least, task scheduling.
 use POE;
 use Class::Accessor::Fast;
 
+use Data::UUID;
+use Path::Class::Dir;
+
 use Hopkins::Store;
 use Hopkins::Config;
 use Hopkins::Queue;
@@ -30,6 +33,8 @@ use Hopkins::Constants;
 use base 'Class::Accessor::Fast';
 
 __PACKAGE__->mk_accessors(qw(hopkins config plugins queues));
+
+my $ug = new Data::UUID;
 
 =head1 STATES
 
@@ -145,11 +150,12 @@ sub init_queues
 	# up to the manager session.
 
 	foreach my $name ($self->config->get_queue_names) {
-		my $opts = $self->config->get_queue_info($name);
+		my $opts	= $self->config->get_queue_info($name);
+		my $queue	= new Hopkins::Queue { kernel => $kernel, config => $self->config, %$opts };
 
-		$self->queues->{$name} = new Hopkins::Queue { kernel => $kernel, %$opts };
+		$self->queues->{$name} = $queue;
 
-		$kernel->post(manager => queue_start => $name);
+		$kernel->post(manager => queue_start => $name) unless $queue->halted;
 	}
 }
 
@@ -274,7 +280,7 @@ sub init_state
 {
 	my $self = shift;
 
-	new Hopkins::State { config => $self->config->fetch('state') };
+	new Hopkins::State { manager => $self, config => $self->config->fetch('state') };
 }
 
 =item init_config
@@ -472,21 +478,27 @@ sub enqueue
 		return HOPKINS_ENQUEUE_QUEUE_FROZEN;
 	}
 
-	# notify the state tracker that we're going to enqueue
-	# a task.  the state tracker will assign an identifier
-	# that will be used to identify it throughout its life.
+	# create new work for the queue.  assign a unique ID via
+	# Data::UUID, add it to the queue, and flush the queue's
+	# state to disk.
 
-	my $work = new Hopkins::Work { task => $task, queue => $queue };
+	my $work = new Hopkins::Work;
+
+	$work->id($ug->create_str);
+	$work->task($task);
+	$work->queue($queue);
+	$work->options($opts);
+	$work->date_enqueued(DateTime->now);
 
 	$queue->tasks->Push($work);
+	$queue->write_state;
 
-	$kernel->call(state => task_enqueued => $work);
+	Hopkins->log_debug("enqueued task $name (" . $work->id . ')');
 
-	# post one of two enqueue events, depending on whether
-	# the task has an associated class name or an explicit
-	# command line specification.
-
-	Hopkins->log_debug("enqueuing task $name (" . $work->id . ')');
+	# post an enqueue event to the PoCo::JobQueue session.
+	# if the session is not running, this event will have
+	# no effect, though the task will still be enqueued
+	# in hopkins.
 
 	$kernel->post($queue->alias => enqueue => dequeue => $work);
 
@@ -503,6 +515,7 @@ sub dequeue
 	Hopkins->log_debug('dequeued task ' . $work->task->name . ' (' . $work->id . ')');
 
 	$work->queue->tasks->Delete($work);
+	$work->queue->write_state;
 
 	#my $now		= DateTime->now;
 	#my $state	= $heap->{state};
