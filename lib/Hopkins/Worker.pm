@@ -72,7 +72,7 @@ sub new
 
 sub inline
 {
-	my $self	= $_[OBJECT];
+	my $self	= shift;
 	my $class	= shift;
 	my $params	= shift || {};
 
