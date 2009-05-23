@@ -43,7 +43,11 @@ if (scalar @ARGV == 0) {
 	my $term	= new Term::ReadLine 'hopkins';
 	my $history	= ((getpwuid($<))[7]) . '/.hopkins_history';
 
-	$term->ReadHistory($history);
+	if ($term->can('ReadHistory')) {
+		$term->ReadHistory($history);
+	} else {
+		print "hopkins: install Term::ReadLine::Gnu for history file support\n";
+	}
 
 	while (defined(my $line = $term->readline('hopkins> '))) {
 		my @args	= string2list($line);
