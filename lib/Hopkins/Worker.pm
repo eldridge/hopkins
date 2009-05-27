@@ -15,9 +15,9 @@ Hopkins::Queue->spawn_worker via POE::Component::JobQueue.
 
 use POE;
 use POE::Filter::Reference;
-use YAML;
-
 use Class::Accessor::Fast;
+
+use YAML;
 
 use base 'Class::Accessor::Fast';
 
@@ -113,8 +113,7 @@ sub start
 	my $kernel		= $_[KERNEL];
 	my $heap		= $_[HEAP];
 
-	$kernel->post(store => 'notify', 'task_update', $self->work->id, status => 'running');
-	#$kernel->post('manager' => 'taskstart', $worker->id);
+	$kernel->post(store => notify => task_started => { id => $self->work->id });
 
 	# set the name of this session's alias based on the queue and session ID
 	my $session = $kernel->get_active_session;

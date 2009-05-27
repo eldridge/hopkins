@@ -15,18 +15,22 @@ with the DBIx::Class schema creation.
 =cut
 
 use POE;
-use List::Object;
+use POE::Filter::Reference;
 use Class::Accessor::Fast;
 
-use Hopkins::Schema;
+use Cache::FileCache;
+use Data::UUID;
+use Tie::IxHash;
+
+use Hopkins::Store::Backend;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(schema events));
+__PACKAGE__->mk_accessors(qw(config cache events backend tries));
 
-use constant HOPKINS_STORE_CONNECTION_CHECK_INTERVAL	=> 60;
-use constant HOPKINS_STORE_EVENT_PROC_INTERVAL			=> 60;
-use constant HOPKINS_STORE_EVENT_PROC_MAX_TIME			=> 20;
+use constant HOPKINS_STORE_EVENT_PROC_INTERVAL => 60;
+
+my $ug = new Data::UUID;
 
 =head1 METHODS
 
@@ -40,7 +44,24 @@ sub new
 {
 	my $self = shift->SUPER::new(@_);
 
-	$self->events(new List::Object);
+	$self->events(new Tie::IxHash);
+
+	$self->cache(new Cache::FileCache {
+		cache_root		=> $self->config->fetch('state/root')->stringify,
+		namespace		=> 'store',
+		directory_umask	=> 0077
+	});
+
+	if (my $events = $self->cache->get('events')) {
+		last if not ref $events eq 'ARRAY';
+
+		foreach my $href (@$events) {
+			next if not defined $href->{id};
+			next if not defined $href->{contents};
+
+			$self->events->Push($href->{id} => $href->{contents});
+		}
+	}
 
 	POE::Session->create
 	(
@@ -49,10 +70,21 @@ sub new
 			$self =>
 			{
 				_start	=> 'start',
-				_stop	=> 'stop'
+				_stop	=> 'stop',
+
+				init	=> 'init',
+				notify	=> 'notify',
+				proc	=> 'proc',
+
+				spawn	=> 'backend_spawn',
+				stdout	=> 'backend_notify',
+				stderr	=> 'backend_error',
+				done	=> 'backend_exited'
 			}
 		]
 	);
+
+	return $self;
 }
 
 =back
@@ -67,10 +99,13 @@ sub new
 
 sub start
 {
-	my $kernel = $_[KERNEL];
+	my $self	= $_[OBJECT];
+	my $kernel	= $_[KERNEL];
 
 	$kernel->alias_set('store');
-	$kernel->post(store => 'connchk');
+
+	$kernel->post(store => 'init');
+	$kernel->alarm(proc => time + HOPKINS_STORE_EVENT_PROC_INTERVAL);
 }
 
 =item stop
@@ -81,94 +116,42 @@ sub stop
 {
 }
 
-=item connchk
+=item init
+
+initialize the store.  if a backend is currently
+running, it is destroyed and a new spawn event is
+generated.
 
 =cut
 
-sub connchk
+sub init
 {
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 
-	#eval { $schema && $schema->ensure_connected }
-	if ($self->schema) {
-		if (!$self->schema->ensure_connected) {
-			Hopkins->log_error('lost connection to database');
-			$kernel->alarm('evtproc');
-			$kernel->post(store => 'connect');
-		}
-	} else {
-		Hopkins->log_info('initiating database connection');
-		$kernel->post(store => 'connect');
-	}
-
-	$kernel->alarm(connchk	=> time + HOPKINS_STORE_CONNECTION_CHECK_INTERVAL);
+	$self->backend(undef);
+	$kernel->post(store => 'spawn');
 }
 
-sub connect
+sub proc
 {
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
-	my $heap	= $_[HEAP];
 
-	my $config	= Hopkins::Config->fetch('database');
-	my $dsn		= $config->{dsn};
-	my $user	= $config->{user};
-	my $pass	= $config->{pass};
-	my $opts	= $config->{options};
-
-	if (not defined $dsn) {
-		Hopkins->log_error('database/dsn not specified');
-		Hopkins->log_debug('trying again in ' . HOPKINS_STORE_CONNECTION_CHECK_INTERVAL . ' seconds');
+	if (not defined $self->backend) {
+		$kernel->post(store => 'spawn');
 		return;
 	}
 
-	Hopkins->log_debug("attempting to connect to $dsn as $user");
+	foreach my $id ($self->events->Keys) {
+		my $event = $self->events->Values([ $id ]);
 
-	# attempt to connect to the schema.  gracefully handle
-	# any exceptions that may occur.
+		Hopkins->log_debug("sending event $id to backend");
 
-	my $schema;
-
-	eval {
-		# DBIx::Class is lazy.  it will wait until the last
-		# possible moment to connect to the database.  this
-		# prevents unnecessary database connections, but we
-		# but we want to immediately and gracefully handle
-		# any errors, so we force the connection now with
-		# the storage object's ensure_connected method.
-
-		$schema = Hopkins::Schema->connect($dsn, $user, $pass, $opts);
-		$schema->storage->ensure_connected;
-	};
-
-	# if the connection was successful, replace our existing
-	# schema object with the new schema object.
-
-	if (my $err = $@) {
-		Hopkins->log_error("failed to connect to schema: $err");
-		Hopkins->log_debug('trying again in ' . HOPKINS_STORE_CONNECTION_CHECK_INTERVAL . ' seconds');
-	} else {
-		Hopkins->log_debug('successfully connected to schema');
-		$self->schema($schema);
-	}
-}
-
-sub evtproc
-{
-	my $self	= $_[OBJECT];
-	my $kernel	= $_[KERNEL];
-
-	my $start = time;
-
-	while ($self->events->count) {
-		last if $start + HOPKINS_STORE_EVENT_PROC_MAX_TIME > time;
-
-		my $aref	= $self->events->shift;
-		my $res		= $kernel->call(store => $aref->[0] => $aref->[1..$#{$aref}]);
+		$self->backend->put({ event => { id => $id, contents => $event } });
 	}
 
-	$kernel->alarm(evtproc => time + HOPKINS_STORE_EVENT_PROC_INTERVAL);
+	$kernel->alarm(proc => time + HOPKINS_STORE_EVENT_PROC_INTERVAL);
 }
 
 sub evtflush
@@ -188,29 +171,70 @@ sub notify
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 
-	$self->events->add([ @_ ]);
+	my $id = $ug->create_str;
+
+	Hopkins->log_debug("received $_[ARG0] notification; assigned event ID $id");
+
+	my @args = @_[ARG0..$#_];
+
+	$self->events->Push($id => \@args);
+	$self->write_state;
 }
 
-sub task_update
+sub write_state
+{
+	my $self = shift;
+
+	my @events = map +{ id => $_, contents => $self->events->FETCH($_) }, $self->events->Keys;
+
+	$self->cache->set(events => \@events);
+}
+
+sub backend_spawn
 {
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
-	my $id		= $_[ARG0];
-	my $args	= { @_[ARG0..$#_] };
 
-	my $rsTask	= $self->schema->resultset('Task');
-	my $task	= $rsTask->find($id);
+	my %args =
+	(
+		Program			=> sub { new Hopkins::Store::Backend { config => $self->config } },
+		StdoutEvent		=> 'stdout',
+		StderrEvent		=> 'stderr',
+		StdioFilter		=> new POE::Filter::Reference 'YAML'
+	);
 
-	my $coderef = sub
-	{
-		# XXX: no idea what i'm trying to do here :/
+	$kernel->sig(CHLD => 'done');
+	$self->backend(new POE::Wheel::Run %args);
+}
 
-		#foreach my $key (keys %$args) {
-		#	$kernel->call(store => "$_[STATE]_$key", $args->{$key});
-		#}
-	};
+sub backend_notify
+{
+	print STDERR "received input from backend\n";
+}
 
-	return $self->schema->txn_do($coderef);
+sub backend_error
+{
+	my $self	= $_[OBJECT];
+	my $kernel	= $_[KERNEL];
+	my $text	= $_[ARG0];
+
+	Hopkins->log_warn($text);
+}
+
+sub backend_exited
+{
+	my $self	= $_[OBJECT];
+	my $kernel	= $_[KERNEL];
+	my $signal	= $_[ARG0];
+	my $pid		= $_[ARG1];
+	my $status	= $_[ARG2];
+
+	return if $pid != $self->backend->PID;
+
+	Hopkins->log_error('lost database backend');
+
+	$self->backend(undef);
+	$kernel->sig('CHLD');
 }
 
 =back

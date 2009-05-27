@@ -50,9 +50,9 @@ sub new
 		qw(halt freeze shutdown flush);
 
 	$self->cache(new Cache::FileCache {
-		 cache_root			=> $self->config->fetch('state/root')->stringify,
-		 namespace			=> 'queue/' . $self->name,
-		 directory_umask	=> 0077
+		cache_root		=> $self->config->fetch('state/root')->stringify,
+		namespace		=> 'queue/' . $self->name,
+		directory_umask	=> 0077
 	});
 
 	if (my $flag = $self->cache->get('frozen')) {
@@ -124,7 +124,7 @@ sub new
 			#$work->row
 
 			if (not defined $work->date_started) {
-				$self->tasks->Push($work);
+				$self->tasks->Push($work->id => $work);
 			} else {
 				# it was already started, but we don't know
 				# what happened to it.  assume that it
@@ -152,7 +152,7 @@ sub spawn
 		Passive		=> { Prioritizer => \&Hopkins::Queue::prioritize },
 	);
 
-	foreach my $work ($self->tasks->Keys) {
+	foreach my $work ($self->tasks->Values) {
 		$self->kernel->post($self->alias => enqueue => dequeue => $work);
 	}
 
@@ -199,7 +199,7 @@ sub write_state
 	$self->cache->set(frozen => $self->frozen);
 	$self->cache->set(halted => $self->halted);
 	$self->cache->set(error => $self->error);
-	$self->cache->set(tasks => [ map { $_->serialize } $self->tasks->Keys ]);
+	$self->cache->set(tasks => [ map { $_->serialize } $self->tasks->Values ]);
 }
 
 =item stop

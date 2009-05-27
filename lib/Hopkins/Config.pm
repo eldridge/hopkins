@@ -242,7 +242,7 @@ sub scan
 {
 	my $self = shift;
 
-	return $self->monitor->scan;
+	return scalar $self->monitor->scan;
 }
 
 sub get_queue_names

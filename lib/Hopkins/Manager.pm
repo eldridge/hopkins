@@ -24,7 +24,6 @@ use Path::Class::Dir;
 use Hopkins::Store;
 use Hopkins::Config;
 use Hopkins::Queue;
-use Hopkins::State;
 use Hopkins::Task;
 use Hopkins::Work;
 
@@ -77,7 +76,6 @@ sub new
 				init_queues		=> 'init_queues',
 				init_plugins	=> 'init_plugins',
 				init_store		=> 'init_store',
-				init_state		=> 'init_state',
 
 				queue_check_all	=> 'queue_check_all',
 				queue_check		=> 'queue_check',
@@ -92,7 +90,6 @@ sub new
 
 				scheduler		=> 'scheduler',
 				enqueue			=> 'enqueue',
-				taskstart		=> 'taskstart',
 				dequeue			=> 'dequeue',
 
 				shutdown		=> 'shutdown'
@@ -269,18 +266,9 @@ sub queue_failure
 
 sub init_store
 {
-	new Hopkins::Store;
-}
-
-=item init_state
-
-=cut
-
-sub init_state
-{
 	my $self = shift;
 
-	new Hopkins::State { manager => $self, config => $self->config->fetch('state') };
+	new Hopkins::Store { config => $self->config };
 }
 
 =item init_config
@@ -295,7 +283,7 @@ sub init_config
 	$self->config(new Hopkins::Config { file => $self->hopkins->conf });
 
 	$kernel->call(manager => 'config_load');
-	$kernel->alarm(confscan => time + $self->hopkins->scan);
+	$kernel->alarm(config_scan => time + $self->hopkins->scan);
 }
 
 =item init_plugins
@@ -355,7 +343,7 @@ sub config_load
 
 	if ($status->store_modified) {
 		Hopkins->log_debug('database information changed');
-		$kernel->post(manager => 'init_store');
+		$kernel->post(store => 'init');
 	}
 
 	$kernel->post(manager => 'init_plugins');
@@ -370,14 +358,12 @@ sub config_scan
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 
-	print "WHAT THE FUCK MAN\n";
-
 	if ($self->config->scan) {
 		Hopkins->log_info('configuration file changed');
-		$kernel->post(manager => 'confload')
+		$kernel->post(manager => 'config_load')
 	}
 
-	$kernel->alarm(confscan => time + $self->hopkins->scan);
+	$kernel->alarm(config_scan => time + $self->hopkins->scan);
 }
 
 =item shutdown
@@ -392,7 +378,7 @@ sub shutdown
 	Hopkins->log_info('received shutdown request');
 
 	$kernel->alarm('scheduler');
-	$kernel->alarm('confscan');
+	$kernel->alarm('config_scan');
 
 	foreach my $name ($self->config->get_queue_names) {
 		Hopkins->log_debug("posting stop event for $name queue");
@@ -490,7 +476,7 @@ sub enqueue
 	$work->options($opts);
 	$work->date_enqueued(DateTime->now);
 
-	$queue->tasks->Push($work);
+	$queue->tasks->Push($work->id => $work);
 	$queue->write_state;
 
 	Hopkins->log_debug("enqueued task $name (" . $work->id . ')');
@@ -510,37 +496,18 @@ sub dequeue
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 	my $params	= $_[ARG0];
+
 	my $work	= $params->[0];
+	my $now		= DateTime->now;
 
 	Hopkins->log_debug('dequeued task ' . $work->task->name . ' (' . $work->id . ')');
 
-	$work->queue->tasks->Delete($work);
+	$work->queue->tasks->Delete($work->id);
 	$work->queue->write_state;
 
-	#my $now		= DateTime->now;
-	#my $state	= $heap->{state};
-	#my $schema	= Hopkins::Store->schema;
-	#my $rsTask	= $schema->resultset('Task');
-	#my $task	= $rsTask->find($id);
+	my $args = { id => $work->id, when => $now->iso8601 };
 
-	$kernel->call(state => task_completed => $work);
-
-	#$task->date_completed($now);
-	#$task->update;
-
-	#my $task	= Hopkins::Config->get_task_info($task->name);
-}
-
-sub taskstart
-{
-	my $self	= $_[OBJECT];
-	my $kernel	= $_[KERNEL];
-	my $heap	= $_[HEAP];
-	my $id		= $_[ARG0];
-
-	#$kernel->post(store => 'notify', 'task_update', $id, status => 'running');
-
-	print STDERR "HOLY ASSCOW\n";
+	$kernel->post(store => notify => task_completed => $args);
 }
 
 sub queue
