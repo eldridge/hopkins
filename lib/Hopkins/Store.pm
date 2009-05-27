@@ -28,7 +28,7 @@ use base 'Class::Accessor::Fast';
 
 __PACKAGE__->mk_accessors(qw(config cache events backend tries));
 
-use constant HOPKINS_STORE_EVENT_PROC_INTERVAL => 60;
+use constant HOPKINS_STORE_EVENT_PROC_INTERVAL => 10;
 
 my $ug = new Data::UUID;
 
@@ -144,7 +144,7 @@ sub proc
 	}
 
 	foreach my $id ($self->events->Keys) {
-		my $event = $self->events->Values([ $id ]);
+		my $event = $self->events->FETCH($id);
 
 		Hopkins->log_debug("sending event $id to backend");
 
@@ -209,7 +209,14 @@ sub backend_spawn
 
 sub backend_notify
 {
-	print STDERR "received input from backend\n";
+	my $self	= $_[OBJECT];
+	my $kernel	= $_[KERNEL];
+	my $href	= $_[ARG0];
+
+	if (my $href = $href->{eventproc}) {
+		$self->events->Delete($href->{id});
+		$self->write_state;
+	}
 }
 
 sub backend_error

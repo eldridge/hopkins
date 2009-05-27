@@ -1,4 +1,4 @@
-package Hopkins::Schema::Row::Task;
+package Hopkins::Store::Schema::Row::Task;
 
 use strict;
 
@@ -17,13 +17,12 @@ __PACKAGE__->load_components(qw/PK::Auto Core/);
 __PACKAGE__->table('tasks');
 __PACKAGE__->add_columns(
 	id => {
-		data_type			=> 'bigint',
-		size				=> 20,
+		data_type			=> 'char',
+		size				=> 36,
 		is_nullable			=> 0,
 		default_value		=> undef,
-		is_auto_increment	=> 1,
-		is_foreign_key		=> 0,
-		extra				=> { unsigned => 1 }
+		is_auto_increment	=> 0,
+		is_foreign_key		=> 0
 	},
 	id_queue => {
 		data_type			=> 'bigint',
@@ -49,7 +48,7 @@ __PACKAGE__->add_columns(
 		is_auto_increment	=> 0,
 		is_foreign_key		=> 1
 	},
-	date_queued => {
+	date_enqueued => {
 		data_type			=> 'datetime',
 		size				=> 0,
 		is_nullable			=> 0,
@@ -84,12 +83,12 @@ __PACKAGE__->add_columns(
 );
 __PACKAGE__->set_primary_key('id');
 
-__PACKAGE__->add_relationship('queue', 'Hopkins::Schema::Row::Queue',
-	{ 'foreign.id'	=> 'self.id_queue'	},
-	{ 'accessor'	=> 'single'			}
-);
+#__PACKAGE__->add_relationship('queue', 'Hopkins::Schema::Row::Queue',
+#	{ 'foreign.id'	=> 'self.id_queue'	},
+#	{ 'accessor'	=> 'single'			}
+#);
 
-__PACKAGE__->inflate_column('date_queued', {
+__PACKAGE__->inflate_column('date_enqueued', {
     inflate => sub { DateTime::Format::ISO8601->parse_datetime(shift) },
     deflate => sub { shift->iso8601 }
 });

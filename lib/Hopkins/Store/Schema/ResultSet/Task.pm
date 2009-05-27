@@ -1,8 +1,8 @@
-package Hopkins::Schema::ResultSet::Task;
+package Hopkins::Store::Schema::ResultSet::Task;
 
 =head1 NAME
 
-Hopkins::Schema::ResultSet::Task - ResultSet class for Task
+Hopkins::Store::Schema::ResultSet::Task - ResultSet class for Task
 
 =head1 DESCRIPTION
 

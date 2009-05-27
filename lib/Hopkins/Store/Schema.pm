@@ -1,4 +1,4 @@
-package Hopkins::Schema;
+package Hopkins::Store::Schema;
 
 use strict;
 

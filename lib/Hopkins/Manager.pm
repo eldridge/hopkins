@@ -468,18 +468,25 @@ sub enqueue
 	# Data::UUID, add it to the queue, and flush the queue's
 	# state to disk.
 
-	my $work = new Hopkins::Work;
+	my $now		= DateTime->now;
+	my $work	= new Hopkins::Work;
 
 	$work->id($ug->create_str);
 	$work->task($task);
 	$work->queue($queue);
 	$work->options($opts);
-	$work->date_enqueued(DateTime->now);
+	$work->date_enqueued($now);
 
 	$queue->tasks->Push($work->id => $work);
 	$queue->write_state;
 
 	Hopkins->log_debug("enqueued task $name (" . $work->id . ')');
+
+	# notify the Store that we've enqueued a task
+
+	my $args = { id => $work->id, name => $name, when => $now->iso8601 };
+
+	$kernel->post(store => notify => task_enqueued => $args);
 
 	# post an enqueue event to the PoCo::JobQueue session.
 	# if the session is not running, this event will have

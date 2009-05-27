@@ -35,7 +35,12 @@ __PACKAGE__->mk_accessors(qw(config filter schema));
 
 =over 4
 
-=item init
+=item new
+
+create a new Hopkins::Store::Backend object for processing
+requests received on STDIN.  under normal operations, this
+constructor will return.  it will, however, return if there
+are any errors processing events.
 
 =cut
 
@@ -46,48 +51,21 @@ sub new
 	open STATUS, '>&STDOUT';
 	open STDOUT, '>&STDERR';
 
+	autoflush STATUS 1;
+
 	$self->filter(new POE::Filter::Reference 'YAML');
 
 	$self->connect and $self->loop;
 }
 
-sub loop
-{
-	my $self = shift;
+=item connect
 
-	while (my $line = <STDIN>) {
-		my $aref = $self->filter->get([ $line ]);
+connects the schema's storage backend to the data source
+described by the config object passed to the constructor.
+this method returns the resulting schema object or undef
+if there was an error.
 
-		foreach my $href (@$aref) {
-			$self->process($href) or return;
-		}
-	}
-}
-
-sub process
-{
-	my $self = shift;
-	my $href = shift;
-
-	$self->connected or return 0;
-
-	use YAML;
-
-	print Dump($href);
-
-	return 1;
-}
-
-sub connected
-{
-	my $self = shift;
-
-	my $ok = $self->schema->storage->ensure_connected ? 1 : 0;
-
-	Hopkins->log_error('lost connection to database') if not $ok;
-
-	return $ok;
-}
+=cut
 
 sub connect
 {
@@ -121,7 +99,7 @@ sub connect
 		# any errors, so we force the connection now with
 		# the storage object's ensure_connected method.
 
-		$schema = Hopkins::Schema->connect($dsn, $user, $pass, $opts);
+		$schema = Hopkins::Store::Schema->connect($dsn, $user, $pass, $opts);
 		$schema->storage->ensure_connected;
 	};
 
@@ -136,6 +114,158 @@ sub connect
 	}
 
 	return $self->schema;
+}
+
+=item connected
+
+checks to make sure that the schema's storage backend is
+connected to the data source.  returns a truth value
+indicating whether or not the schema is connected.
+
+=cut
+
+sub connected
+{
+	my $self = shift;
+
+	my $ok = $self->schema->storage->ensure_connected ? 1 : 0;
+
+	Hopkins->log_error('lost connection to database') if not $ok;
+
+	return $ok;
+}
+
+=item loop
+
+main event processing loop.  reads lines from STDIN and
+passes them to POE::Filter for decoding.  each decoded
+item is passed to the process method individually for
+further processing.
+
+under normal operating conditions, this method will never
+return.  however, if processing of an individual item fails,
+this method will return to its caller, resulting in the
+destruction of the Store::Backend object.
+
+=cut
+
+sub loop
+{
+	my $self = shift;
+
+	while (my $line = <STDIN>) {
+		my $aref = $self->filter->get([ $line ]);
+
+		foreach my $href (@$aref) {
+			$self->process($href) or return;
+		}
+	}
+}
+
+=item process
+
+process an action or event received from STDIN by the loop
+method.  process will return a boolean value indicating the
+success or failure of the processing.
+
+=cut
+
+sub process
+{
+	my $self = shift;
+	my $href = shift;
+
+	$self->connected or return 0;
+
+	use YAML;
+
+	print Dump($href);
+
+	if ($href->{event}) {
+		return $self->process_event($href->{event});
+	}
+
+	return 1;
+}
+
+=item process_event
+
+process an event received from STDIN.  this method will
+dispatch the event to an appropriate method as indicated
+by the event name.  if Store::Backend does not have an
+appropriate method to handle the event, it will be ignored.
+if the event is successfully processed, the Store session
+will be notified by sending a message on STDOUT.
+
+=cut
+
+sub process_event
+{
+	my $self	= shift;
+	my $href	= shift;
+
+	my $id		= $href->{id};
+	my $aref	= $href->{contents};
+	my $event	= $aref->[0];
+	my $method	= "process_event_$event";
+
+	if ($self->can($method) && $self->$method(@$aref[1..$#{$aref}])) {
+		print STATUS $_
+			foreach @{ $self->filter->put([ { eventproc => { id => $id } } ]) };
+	}
+
+	return 1;
+}
+
+=item process_event_task_enqueued
+
+a task was enqueued: record it in the database
+
+=cut
+
+sub process_event_task_enqueued
+{
+	my $self = shift;
+	my $href = shift;
+
+	my $rsTask	= $self->schema->resultset('Task');
+	my $task	= $rsTask->find_or_create({ id => $href->{id} });
+
+	$task->update({ name => $href->{name}, date_enqueued => $href->{when} });
+}
+
+=item process_event_task_started
+
+a task was started: record it in the database
+
+=cut
+
+sub process_event_task_started
+{
+	my $self = shift;
+	my $href = shift;
+
+	my $rsTask	= $self->schema->resultset('Task');
+	my $task	= $rsTask->find_or_create({ id => $href->{id} });
+
+	$task->update({ date_started => $href->{when} });
+}
+
+=item process_event_task_completed
+
+a task was completed: record it in the database
+
+=cut
+
+sub process_event_task_completed
+{
+	my $self = shift;
+	my $href = shift;
+
+	my $rsTask	= $self->schema->resultset('Task');
+	my $task	= $rsTask->find_or_create({ id => $href->{id} });
+
+	$task->update({ date_completed => $href->{when} });
 }
 
 =back
