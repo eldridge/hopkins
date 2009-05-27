@@ -17,8 +17,14 @@ file to use to determine the database connection info.
 =cut
 
 use Getopt::Compact;
+
 use Hopkins::Config;
-use Hopkins::Schema;
+use Hopkins::Store::Schema;
+
+sub Hopkins::log_debug	{ }
+sub Hopkins::log_info	{ }
+sub Hopkins::log_warn	{ }
+sub Hopkins::log_error	{ }
 
 # use Getopt::Compact to process any command-line options.
 # we use Getopt::Compact instead of Getopt::Long simply for
@@ -44,9 +50,17 @@ die $go->usage if not defined $global->{conf};
 # options, then create a schema object that's connected to
 # the configured database
 
-my $config	= Hopkins::Config->parse($global->{conf});
-my $href	= $config->{database};
-my $schema	= Hopkins::Schema->connect(@$href{qw(dsn user pass options)});
+my $config	= new Hopkins::Config { file => $global->{conf} };
+my $status	= $config->load;
+
+if (not $status->parsed) {
+	print "deploy: unable to load configuration from $global->{conf}\n";
+	print $status->errmsg . "\n";
+	exit 1;
+}
+
+my $href	= $config->fetch('database');
+my $schema	= Hopkins::Store::Schema->connect(@$href{qw(dsn user pass options)});
 
 # deploy the schema to the connected database!  we're done!
 $schema->deploy({ add_drop_table => $global->{drop} });

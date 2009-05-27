@@ -20,6 +20,7 @@ use DateTime;
 use DateTime::Event::MultiCron;
 use DateTime::Set;
 use File::Monitor;
+use Path::Class::Dir;
 use XML::Simple;
 use YAML;
 
