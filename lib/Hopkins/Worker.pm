@@ -21,7 +21,9 @@ use YAML;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(alias postback work params child status));
+__PACKAGE__->mk_accessors(qw(alias postback work params child status timer));
+
+use constant HOPKINS_WORKER_MAX_STATUS_WAIT => 10;
 
 =head1 STATES
 
@@ -58,6 +60,8 @@ sub new
 				stdout		=> 'stdout',
 				stderr		=> 'stderr',
 				done		=> 'done',
+				statuswait	=> 'statuswait',
+				reap		=> 'reap',
 				shutdown	=> 'shutdown'
 			}
 		]
@@ -113,7 +117,10 @@ sub start
 	my $kernel		= $_[KERNEL];
 	my $heap		= $_[HEAP];
 
-	$kernel->post(store => notify => task_started => { id => $self->work->id });
+	my $now		= DateTime->now;
+	my $args	= { id => $self->work->id, when => $now->iso8601 };
+
+	$kernel->post(store => notify => task_started => $args);
 
 	# set the name of this session's alias based on the queue and session ID
 	my $session = $kernel->get_active_session;
@@ -174,23 +181,44 @@ sub done
 
 	Hopkins->log_debug("child process $pid exited with status $status");
 
-	if ($self->status) {
-		if ($self->status->{error}) {
-			Hopkins->log_error('worker failure executing ' . $self->work->task->name);
-			$kernel->call(manager => queue_failure => $self->work->queue, $self->status->{error});
-		} else {
-			Hopkins->log_info('worker successfully executed ' . $self->work->task->name);
-		}
-	} else {
+	$self->timer(time);
+	$self->child(undef);
+
+	$kernel->sig('CHLD');
+	$kernel->post($self->alias => 'statuswait');
+}
+
+sub statuswait
+{
+	my $self	= $_[OBJECT];
+	my $kernel	= $_[KERNEL];
+
+	return $kernel->post($self->alias => 'reap') if $self->status;
+
+	if (time > $self->timer + HOPKINS_WORKER_MAX_STATUS_WAIT) {
 		use Data::Dumper;
 		$Data::Dumper::Indent = 1;
 		Hopkins->log_error('worker did not report a status!');
 		Hopkins->log_error(Dumper $self);
+
+		$kernel->yield('shutdown');
+	} else {
+		$kernel->alarm(statuswait => time + 1);
+	}
+}
+
+sub reap
+{
+	my $self	= $_[OBJECT];
+	my $kernel	= $_[KERNEL];
+
+	if ($self->status->{error}) {
+		Hopkins->log_error('worker failure executing ' . $self->work->task->name);
+		$kernel->call(manager => queue_failure => $self->work->queue, $self->status->{error});
+	} else {
+		Hopkins->log_info('worker successfully executed ' . $self->work->task->name);
 	}
 
-	$self->postback->($pid, $status);
-	$self->child(undef);
-	$kernel->sig('CHLD');
 	$kernel->yield('shutdown');
 }
 
@@ -198,6 +226,11 @@ sub shutdown
 {
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
+
+	# use the postback to inform the JobQueue component that
+	# we have finished executing.
+
+	$self->postback->(); # ($pid, $status);
 
 	# we have to remove the session alias from the kernel,
 	# else POE will never destroy the session.
