@@ -87,7 +87,7 @@ sub new
 
 	# defaults
 
-	$opts->{conf}		||= '/etc/hopkins/hopkins.xml';
+	$opts->{conf}		||= [ XML => { file => '/etc/hopkins/hopkins.xml' } ];
 	$opts->{lp4conf}	||= '/etc/hopkins/log4perl.conf';
 	$opts->{scan}		||= 30;
 	$opts->{poll}		||= 30;

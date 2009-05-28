@@ -279,7 +279,11 @@ sub init_config
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 
-	$self->config(new Hopkins::Config { file => $self->hopkins->conf });
+	my $class = 'Hopkins::Config::' . $self->hopkins->conf->[0];
+
+	eval "use $class";
+
+	$self->config($class->new($self->hopkins->conf->[1]));
 
 	$kernel->call(manager => 'config_load');
 	$kernel->alarm(config_scan => time + $self->hopkins->scan);
@@ -333,7 +337,7 @@ sub config_load
 	if ($status->failed) {
 		my $err = $status->parsed
 			? 'errors in configuration, discarding new version'
-			: 'unable to load configuration file: ' . $status->errmsg;
+			: 'unable to load configuration: ' . $status->errmsg;
 
 		Hopkins->log_error($err);
 	}
