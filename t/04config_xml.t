@@ -1,4 +1,4 @@
-use Test::More tests => 60;
+use Test::More tests => 61;
 
 use strict;
 use warnings;
@@ -14,13 +14,14 @@ sub Hopkins::log_info		{ } #print "$_[1]\n" }
 sub Hopkins::log_warn		{ } #print "$_[1]\n" }
 sub Hopkins::log_error		{ } #print "$_[1]\n" }
 
-use_ok('Hopkins::Config');
+use_ok('Hopkins::Config::XML');
 
 my $env		= new TestEnvironment { source => 'hopkins.xml.tt' };
-my $config	= new Hopkins::Config { file => $env->conf };
+my $config	= new Hopkins::Config::XML { file => $env->conf };
 my $status	= undef;
 
 isa_ok($config, 'Hopkins::Config', 'hopkins config object');
+isa_ok($config, 'Hopkins::Config::XML', 'hopkins config object');
 ok(!defined($config->config), 'hopkins config tree');
 
 $status = $config->load;

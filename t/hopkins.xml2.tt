@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <hopkins>
+	<state>
+		<root>[% scratch %]/state</root>
+	</state>
+
 	<database>
 		<dsn>dbi:SQLite:dbname=[% scratch %]/hopkins.db</dsn>
 		<user>toor</user>
@@ -22,7 +26,7 @@
 
 	<task name="Count">
 		<class>Hopkins::Test::Count</class>
-		<schedule>* * * * *</schedule>
+		<schedule><cron>* * * * *</cron></schedule>
 		<queue>serial</queue>
 	</task>
 
