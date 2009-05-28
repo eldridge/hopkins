@@ -44,6 +44,8 @@ sub new
 {
 	my $self = shift->SUPER::new(@_);
 
+	return undef if not $self->config->loaded;
+
 	$self->events(new Tie::IxHash);
 
 	$self->cache(new Cache::FileCache {

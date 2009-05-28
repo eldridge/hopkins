@@ -114,7 +114,6 @@ sub start
 
 	# post events for initial setup
 	$kernel->call(manager => 'init_config');	# configuration file
-	$kernel->post(manager => 'init_state');		# machine state session
 	$kernel->post(manager => 'init_store');		# database storage sessage
 	$kernel->post(manager => 'init_queues');	# worker queue sessions
 
@@ -338,6 +337,8 @@ sub config_load
 
 		Hopkins->log_error($err);
 	}
+
+	$kernel->post(manager => 'shutdown') if not $self->config->loaded;
 
 	return unless $status->updated;
 

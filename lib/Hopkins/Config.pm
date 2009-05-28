@@ -93,7 +93,13 @@ sub load
 		$status->failed(1)
 	}
 
-	# process any cron-like schedules
+	# process task configuration data structure.  each task
+	# definition is inflated into a Hopkins::Task instance.
+	# schedules are inflated into DateTime::Set objects via
+	# DateTime::Event::MultiCron.  other forms of schedule
+	# definitions may be supported in the future, so long as
+	# they grok DateTime::Set.
+
 	foreach my $name (keys %{ $config->{task} }) {
 		my $href = $config->{task}->{$name};
 
@@ -102,7 +108,6 @@ sub load
 
 		$href->{queue}		= $href->{queue}->[0] if ref $href->{queue};
 		$href->{enabled}	= lc($href->{enabled}) eq 'no' ? 0 : 1;
-		#$href->{options}	= delete $href->{option};
 
 		my $task = new Hopkins::Task { name => $name, %$href };
 
@@ -121,14 +126,7 @@ sub load
 			$status->failed(1);
 		}
 
-		if (my $node = $task->schedule) {
-			my @a	= ref($node) eq 'ARRAY' ? @$node : ($node);
-			my $set	= DateTime::Event::MultiCron->from_multicron(@a);
-
-			$task->schedule($set);
-		} else {
-			$task->schedule(undef);
-		}
+		$task->schedule($self->_setup_schedule($status, $task));
 
 		$config->{task}->{$name} = $task;
 	}
@@ -202,6 +200,32 @@ sub _setup_chains
 	}
 }
 
+sub _setup_schedule
+{
+	my $self	= shift;
+	my $status	= shift;
+	my $task	= shift;
+	my $ref		= $task->{schedule};
+
+	return undef if not defined $ref;
+
+	my $superset = DateTime::Set->empty_set;
+
+	if (my $aref = $ref->{cron}) {
+		my $set = eval { DateTime::Event::MultiCron->from_multicron(@$aref) };
+
+		if (my $err = $@) {
+			Hopkins->log_error('unable to setup schedule for ' . $task->name . ': ' . $err);
+			$status->failed(1);
+			$status->errmsg($err);
+		} else {
+			$superset = $superset->union($set);
+		}
+	}
+
+	return $superset;
+}
+
 sub parse
 {
 	my $self	= shift;
@@ -213,7 +237,7 @@ sub parse
 		ValueAttr		=> [ 'value' ],
 		GroupTags		=> { options => 'option' },
 		SuppressEmpty	=> '',
-		ForceArray		=> [ 'plugin', 'task', 'chain', 'option' ],
+		ForceArray		=> [ 'plugin', 'task', 'chain', 'option', 'cron' ],
 		ContentKey		=> '-value',
 		ValueAttr		=> { option => 'value' },
 		KeyAttr			=>
@@ -320,6 +344,13 @@ sub fetch
 	}
 
 	return $ref;
+}
+
+sub loaded
+{
+	my $self = shift;
+
+	return $self->config ? 1 : 0;
 }
 
 =back
