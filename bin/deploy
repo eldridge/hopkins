@@ -18,7 +18,7 @@ file to use to determine the database connection info.
 
 use Getopt::Compact;
 
-use Hopkins::Config;
+use Hopkins::Config::XML;
 use Hopkins::Store::Schema;
 
 sub Hopkins::log_debug	{ }
@@ -50,7 +50,7 @@ die $go->usage if not defined $global->{conf};
 # options, then create a schema object that's connected to
 # the configured database
 
-my $config	= new Hopkins::Config { file => $global->{conf} };
+my $config	= new Hopkins::Config::XML { file => $global->{conf} };
 my $status	= $config->load;
 
 if (not $status->parsed) {
