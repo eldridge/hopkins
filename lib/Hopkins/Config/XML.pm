@@ -22,6 +22,7 @@ use DateTime::Set;
 use File::Monitor;
 use Path::Class::Dir;
 use XML::Simple;
+use XML::LibXML;
 use YAML;
 
 use Hopkins::Config::Status;
@@ -31,7 +32,7 @@ use Class::Accessor::Fast;
 
 use base qw(Class::Accessor::Fast Hopkins::Config);
 
-__PACKAGE__->mk_accessors(qw(config file monitor));
+__PACKAGE__->mk_accessors(qw(config file monitor xml xsd));
 
 =head1 METHODS
 
@@ -47,6 +48,9 @@ sub new
 
 	$self->monitor(new File::Monitor);
 	$self->monitor->watch($self->file);
+
+	$self->xml(new XML::LibXML);
+	$self->xsd(new XML::LibXML::Schema string => join '', <DATA>);
 
 	return $self;
 }
@@ -74,8 +78,6 @@ sub load
 		$status->failed(1);
 		$status->parsed(0);
 
-		Hopkins->log_error('failed to load XML configuration file: ' . $status->errmsg);
-
 		return $status;
 	}
 
@@ -93,7 +95,7 @@ sub load
 		$status->failed(1)
 	}
 
-	# process task configuration data structure.  each task
+	# process task configuration data structures.  each task
 	# definition is inflated into a Hopkins::Task instance.
 	# schedules are inflated into DateTime::Set objects via
 	# DateTime::Event::MultiCron.  other forms of schedule
@@ -207,7 +209,7 @@ sub _setup_schedule
 	my $task	= shift;
 	my $ref		= $task->{schedule};
 
-	return undef if not defined $ref;
+	return undef if not ref $ref eq 'HASH';
 
 	my $superset = DateTime::Set->empty_set;
 
@@ -231,6 +233,14 @@ sub parse
 	my $self	= shift;
 	my $file	= shift;
 	my $status	= shift;
+
+	eval { $self->xsd->validate($self->xml->parse_file($file)) };
+
+	if (my $err = $@) {
+		$status->errmsg($err);
+
+		return undef;
+	}
 
 	my %xmlsopts =
 	(
@@ -364,3 +374,132 @@ Mike Eldridge <diz@cpan.org>
 =cut
 
 1;
+
+__DATA__
+<?xml version="1.0" encoding="utf-8"?>
+<xs:schema elementFormDefault="qualified" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+	<xs:element name="hopkins" type="hopkins" />
+
+	<xs:complexType name="hopkins">
+		<xs:choice minOccurs="0" maxOccurs="unbounded">
+			<xs:element name="plugin" type="plugin" />
+			<xs:element name="database" type="database" />
+			<xs:element name="queue" type="queue" />
+			<xs:element name="task" type="task" />
+			<xs:element name="state" type="state" />
+		</xs:choice>
+	</xs:complexType>
+
+	<xs:complexType name="state">
+		<xs:sequence>
+			<xs:element name="root" type="xs:string" />
+		</xs:sequence>
+	</xs:complexType>
+
+	<xs:complexType name="plugin">
+		<xs:sequence>
+			<xs:any minOccurs="0" processContents="skip" />
+		</xs:sequence>
+		<xs:attribute name="name" type="xs:string" />
+	</xs:complexType>
+
+	<xs:complexType name="database">
+		<xs:all>
+			<xs:element name="dsn" />
+			<xs:element name="user" />
+			<xs:element name="pass" />
+			<xs:element name="options" type="options" minOccurs="0" />
+		</xs:all>
+	</xs:complexType>
+
+	<xs:complexType name="options">
+		<xs:sequence>
+			<xs:element name="option" maxOccurs="unbounded" />
+		</xs:sequence>
+	</xs:complexType>
+
+	<xs:complexType name="queue">
+		<xs:sequence>
+			<xs:element name="concurrency" type="xs:integer" />
+		</xs:sequence>
+
+		<xs:attribute name="name" type="xs:string" />
+		<xs:attribute name="onerror">
+			<xs:simpleType>
+				<xs:restriction base="xs:string">
+					<xs:enumeration value="halt" />
+					<xs:enumeration value="freeze" />
+					<xs:enumeration value="shutdown" />
+				</xs:restriction>
+			</xs:simpleType>
+		</xs:attribute>
+	</xs:complexType>
+
+	<xs:complexType name="task">
+		<xs:all>
+			<xs:element name="cmd" type="xs:string" minOccurs="0" />
+			<xs:element name="class" type="xs:string" minOccurs="0" />
+			<xs:element name="queue" type="xs:string" />
+			<xs:element name="schedule" type="schedule" minOccurs="0" />
+			<xs:element name="options" type="options" minOccurs="0" />
+			<xs:element name="chain" type="chain" minOccurs="0" />
+		</xs:all>
+
+		<xs:attribute name="name" type="xs:string" />
+		<xs:attribute name="run">
+			<xs:simpleType>
+				<xs:restriction base="xs:string">
+					<xs:enumeration value="serial" />
+					<xs:enumeration value="parallel" />
+				</xs:restriction>
+			</xs:simpleType>
+		</xs:attribute>
+		<xs:attribute name="enabled">
+			<xs:simpleType>
+				<xs:restriction base="xs:string">
+					<xs:enumeration value="yes" />
+					<xs:enumeration value="no" />
+				</xs:restriction>
+			</xs:simpleType>
+		</xs:attribute>
+		<xs:attribute name="stack">
+			<xs:simpleType>
+				<xs:union>
+					<xs:simpleType>
+						<xs:restriction base="xs:string">
+							<xs:enumeration value="yes" />
+							<xs:enumeration value="no" />
+						</xs:restriction>
+					</xs:simpleType>
+					<xs:simpleType>
+						<xs:restriction base="xs:integer">
+							<xs:minInclusive value="-1" />
+						</xs:restriction>
+					</xs:simpleType>
+				</xs:union>
+			</xs:simpleType>
+		</xs:attribute>
+		<xs:attribute name="onerror">
+			<xs:simpleType>
+				<xs:restriction base="xs:string">
+					<xs:enumeration value="disable" />
+				</xs:restriction>
+			</xs:simpleType>
+		</xs:attribute>
+	</xs:complexType>
+
+	<xs:complexType name="schedule">
+		<xs:sequence>
+			<xs:element name="cron" type="xs:string" maxOccurs="unbounded" />
+		</xs:sequence>
+	</xs:complexType>
+
+	<xs:complexType name="chain">
+		<xs:all>
+			<xs:element name="options" type="options" minOccurs="0" />
+			<xs:element name="chain" type="chain" minOccurs="0" />
+		</xs:all>
+
+		<xs:attribute name="task" type="xs:string" />
+	</xs:complexType>
+</xs:schema>

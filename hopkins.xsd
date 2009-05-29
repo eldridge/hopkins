@@ -8,7 +8,14 @@
 			<xs:element name="database" type="database" />
 			<xs:element name="queue" type="queue" />
 			<xs:element name="task" type="task" />
+			<xs:element name="state" type="state" />
 		</xs:choice>
+	</xs:complexType>
+
+	<xs:complexType name="state">
+		<xs:sequence>
+			<xs:element name="root" type="xs:string" />
+		</xs:sequence>
 	</xs:complexType>
 
 	<xs:complexType name="plugin">
@@ -55,7 +62,7 @@
 			<xs:element name="cmd" type="xs:string" minOccurs="0" />
 			<xs:element name="class" type="xs:string" minOccurs="0" />
 			<xs:element name="queue" type="xs:string" />
-			<xs:element name="schedule" type="xs:string" minOccurs="0" />
+			<xs:element name="schedule" type="schedule" minOccurs="0" />
 			<xs:element name="options" type="options" minOccurs="0" />
 			<xs:element name="chain" type="chain" minOccurs="0" />
 		</xs:all>
@@ -77,6 +84,23 @@
 				</xs:restriction>
 			</xs:simpleType>
 		</xs:attribute>
+		<xs:attribute name="stack">
+			<xs:simpleType>
+				<xs:union>
+					<xs:simpleType>
+						<xs:restriction base="xs:string">
+							<xs:enumeration value="yes" />
+							<xs:enumeration value="no" />
+						</xs:restriction>
+					</xs:simpleType>
+					<xs:simpleType>
+						<xs:restriction base="xs:integer">
+							<xs:minInclusive value="-1" />
+						</xs:restriction>
+					</xs:simpleType>
+				</xs:union>
+			</xs:simpleType>
+		</xs:attribute>
 		<xs:attribute name="onerror">
 			<xs:simpleType>
 				<xs:restriction base="xs:string">
@@ -84,6 +108,12 @@
 				</xs:restriction>
 			</xs:simpleType>
 		</xs:attribute>
+	</xs:complexType>
+
+	<xs:complexType name="schedule">
+		<xs:sequence>
+			<xs:element name="cron" type="xs:string" maxOccurs="unbounded" />
+		</xs:sequence>
 	</xs:complexType>
 
 	<xs:complexType name="chain">
