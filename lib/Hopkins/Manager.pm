@@ -489,9 +489,7 @@ sub enqueue
 
 	# notify the Store that we've enqueued a task
 
-	my $args = { id => $work->id, name => $name, when => $now->iso8601 };
-
-	$kernel->post(store => notify => task_enqueued => $args);
+	$kernel->post(store => notify => task_enqueued => $work->serialize);
 
 	# post an enqueue event to the PoCo::JobQueue session.
 	# if the session is not running, this event will have
@@ -510,16 +508,15 @@ sub dequeue
 	my $params	= $_[ARG0];
 
 	my $work	= $params->[0];
-	my $now		= DateTime->now;
 
 	Hopkins->log_debug('dequeued task ' . $work->task->name . ' (' . $work->id . ')');
+
+	$work->date_completed(DateTime->now);
 
 	$work->queue->tasks->Delete($work->id);
 	$work->queue->write_state;
 
-	my $args = { id => $work->id, when => $now->iso8601 };
-
-	$kernel->post(store => notify => task_completed => $args);
+	$kernel->post(store => notify => task_completed => $work->serialize);
 }
 
 sub queue

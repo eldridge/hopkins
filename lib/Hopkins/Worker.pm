@@ -42,12 +42,6 @@ sub new
 
 	Hopkins->log_debug("spawning worker: type=$method; source=$source");
 
-	#my $now		= DateTime->now;
-	#my $schema	= Hopkins::Store->schema;
-	#my $rsTask	= $schema->resultset('Task');
-
-	#$rsTask->find($id)->update({ date_started => $now });
-
 	POE::Session->create
 	(
 		object_states =>
@@ -95,6 +89,7 @@ sub inline
 		eval { require $class; $class->new({ options => $params })->run };
 
 		if (my $err = $@) {
+			print STDERR $err;
 			$status->{error} = $err;
 			Hopkins->log_worker_stderr($self->work->task->name, $err);
 		}
@@ -117,10 +112,9 @@ sub start
 	my $kernel		= $_[KERNEL];
 	my $heap		= $_[HEAP];
 
-	my $now		= DateTime->now;
-	my $args	= { id => $self->work->id, when => $now->iso8601 };
+	$self->work->date_started(DateTime->now);
 
-	$kernel->post(store => notify => task_started => $args);
+	$kernel->post(store => notify => task_started => $self->work->serialize);
 
 	# set the name of this session's alias based on the queue and session ID
 	my $session = $kernel->get_active_session;
@@ -215,8 +209,10 @@ sub reap
 	if ($self->status->{error}) {
 		Hopkins->log_error('worker failure executing ' . $self->work->task->name);
 		$kernel->call(manager => queue_failure => $self->work->queue, $self->status->{error});
+		$self->work->succeeded(0);
 	} else {
 		Hopkins->log_info('worker successfully executed ' . $self->work->task->name);
+		$self->work->succeeded(1);
 	}
 
 	$kernel->yield('shutdown');
@@ -250,6 +246,8 @@ sub stderr
 	my $self = $_[OBJECT];
 
 	Hopkins->log_worker_stderr($self->work->task->name, $_[ARG0]);
+
+	$self->work->output(($self->work->output || '') . $_[ARG0]);
 }
 
 =back

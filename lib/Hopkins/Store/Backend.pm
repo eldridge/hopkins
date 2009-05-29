@@ -177,10 +177,6 @@ sub process
 
 	$self->connected or return 0;
 
-	use YAML;
-
-	print Dump($href);
-
 	if ($href->{event}) {
 		return $self->process_event($href->{event});
 	}
@@ -231,7 +227,11 @@ sub process_event_task_enqueued
 	my $rsTask	= $self->schema->resultset('Task');
 	my $task	= $rsTask->find_or_create({ id => $href->{id} });
 
-	$task->update({ name => $href->{name}, date_enqueued => $href->{when} });
+	$task->name($href->{task}) if not defined $task->name;
+	$task->queue($href->{queue}) if not defined $task->queue;
+	$task->date_enqueued($href->{date_enqueued});
+
+	$task->update;
 }
 
 =item process_event_task_started
@@ -248,7 +248,12 @@ sub process_event_task_started
 	my $rsTask	= $self->schema->resultset('Task');
 	my $task	= $rsTask->find_or_create({ id => $href->{id} });
 
-	$task->update({ date_started => $href->{when} });
+	$task->name($href->{task}) if not defined $task->name;
+	$task->queue($href->{queue}) if not defined $task->queue;
+	$task->started(1);
+	$task->date_started($href->{date_started});
+
+	$task->update;
 }
 
 =item process_event_task_completed
@@ -265,7 +270,15 @@ sub process_event_task_completed
 	my $rsTask	= $self->schema->resultset('Task');
 	my $task	= $rsTask->find_or_create({ id => $href->{id} });
 
-	$task->update({ date_completed => $href->{when} });
+	$task->name($href->{task}) if not defined $task->name;
+	$task->queue($href->{queue}) if not defined $task->queue;
+	$task->completed(1);
+	$task->succeeded($href->{succeeded});
+	$task->date_completed($href->{date_completed});
+	$task->create_related(output => { text => $href->{output} })
+		if defined $href->{output};
+
+	$task->update;
 }
 
 =back

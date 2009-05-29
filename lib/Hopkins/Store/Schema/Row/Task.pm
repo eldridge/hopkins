@@ -24,14 +24,6 @@ __PACKAGE__->add_columns(
 		is_auto_increment	=> 0,
 		is_foreign_key		=> 0
 	},
-	id_queue => {
-		data_type			=> 'bigint',
-		size				=> 20,
-		is_nullable			=> 0,
-		default_value		=> undef,
-		is_auto_increment	=> 0,
-		is_foreign_key		=> 1
-	},
 	name => {
 		data_type			=> 'varchar',
 		size				=> 255,
@@ -40,13 +32,37 @@ __PACKAGE__->add_columns(
 		is_auto_increment	=> 0,
 		is_foreign_key		=> 0
 	},
-	id_queue => {
-		data_type			=> 'bigint',
-		size				=> 20,
+	queue => {
+		data_type			=> 'varchar',
+		size				=> 255,
 		is_nullable			=> 0,
 		default_value		=> undef,
 		is_auto_increment	=> 0,
-		is_foreign_key		=> 1
+		is_foreign_key		=> 0
+	},
+	started => {
+		data_type			=> 'tinyint',
+		size				=> 1,
+		is_nullable			=> 0,
+		default_value		=> 0,
+		is_auto_increment	=> 0,
+		is_foreign_key		=> 0
+	},
+	completed => {
+		data_type			=> 'tinyint',
+		size				=> 1,
+		is_nullable			=> 0,
+		default_value		=> 0,
+		is_auto_increment	=> 0,
+		is_foreign_key		=> 0
+	},
+	succeeded => {
+		data_type			=> 'tinyint',
+		size				=> 1,
+		is_nullable			=> 0,
+		default_value		=> 0,
+		is_auto_increment	=> 0,
+		is_foreign_key		=> 0
 	},
 	date_enqueued => {
 		data_type			=> 'datetime',
@@ -83,10 +99,10 @@ __PACKAGE__->add_columns(
 );
 __PACKAGE__->set_primary_key('id');
 
-#__PACKAGE__->add_relationship('queue', 'Hopkins::Schema::Row::Queue',
-#	{ 'foreign.id'	=> 'self.id_queue'	},
-#	{ 'accessor'	=> 'single'			}
-#);
+__PACKAGE__->add_relationship('output', 'Hopkins::Store::Schema::Row::TaskOutput',
+	{ 'foreign.task'	=> 'self.id'	},
+	{ 'accessor'		=> 'single'		}
+);
 
 __PACKAGE__->inflate_column('date_enqueued', {
     inflate => sub { DateTime::Format::ISO8601->parse_datetime(shift) },
