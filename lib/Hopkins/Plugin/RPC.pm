@@ -158,6 +158,16 @@ sub enqueue
 			last;
 		};
 
+		# enqueing the task would have exceeded the stack
+		# limit configured for this task.  tell the client
+		# to eat a bowl of smegma.
+
+		$rv == HOPKINS_ENQUEUE_TASK_STACK_LIMIT
+		and do {
+			$res->content({ success => 0, err => "unable to enqueue $name: too many in queue" });
+			last;
+		};
+
 		# the queue has been frozen, so we can't enqueue
 		# anything to it.  tell the client to piss off.
 

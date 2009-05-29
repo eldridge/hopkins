@@ -90,13 +90,13 @@
 		</options>
 	</task>
 
-	<task name="SetRefresher">
+	<task name="SetRefresher" stack="no">
 		<class>Greenspan::Job::SetRefresher</class>
 		<schedule><cron>0 * * * *</cron></schedule>
 		<queue>general</queue>
 	</task>
 
-	<task name="AS/400 Sync" run="serial" enabled="yes">
+	<task name="AS/400 Sync" run="serial" enabled="yes" stack="no">
 		<class>Greenspan::Job::AS400::Sync::Authorization</class>
 		<schedule><cron>0 7 * * *</cron></schedule>
 		<queue>orderproc</queue>

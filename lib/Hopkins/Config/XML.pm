@@ -128,6 +128,8 @@ sub load
 			$status->failed(1);
 		}
 
+		$task->stack(-1) if not defined $task->stack;
+		$task->stack(0) if $task->stack eq 'no';
 		$task->schedule($self->_setup_schedule($status, $task));
 
 		$config->{task}->{$name} = $task;

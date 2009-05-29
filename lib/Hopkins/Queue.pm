@@ -305,6 +305,25 @@ sub status_string
 	}
 }
 
+=item num_queued
+
+=cut
+
+sub num_queued
+{
+	my $self = shift;
+	my $task = shift;
+
+	return $self->tasks->Length if not defined $task;
+
+	if (not ref $task eq 'Hopkins::Task') {
+		Hopkins->log_warn('Hopkins::Queue->num_queued called with argument that is not a Hopkins::Task object');
+		return 0;
+	}
+
+	return scalar grep { $_->task->name eq $task->name } $self->tasks->Values
+}
+
 =item start
 
 =cut

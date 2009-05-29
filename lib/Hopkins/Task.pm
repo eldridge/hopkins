@@ -18,7 +18,7 @@ use Class::Accessor::Fast;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(name class cmd queue schedule options chain run enabled onerror));
+__PACKAGE__->mk_accessors(qw(name class cmd queue stack schedule options chain run enabled onerror));
 
 =back
 

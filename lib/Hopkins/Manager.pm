@@ -469,6 +469,11 @@ sub enqueue
 		return HOPKINS_ENQUEUE_QUEUE_FROZEN;
 	}
 
+	if ($task->stack != -1 && $task->stack <= $queue->num_queued($task)) {
+		Hopkins->log_warn("unable to enqueue $name; stack limit reached");
+		return HOPKINS_ENQUEUE_TASK_STACK_LIMIT;
+	}
+
 	# create new work for the queue.  assign a unique ID via
 	# Data::UUID, add it to the queue, and flush the queue's
 	# state to disk.
