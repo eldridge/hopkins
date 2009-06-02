@@ -23,6 +23,7 @@ use Tie::IxHash;
 
 use Hopkins::Constants;
 use Hopkins::Worker;
+use Hopkins::Work;
 
 use base 'Class::Accessor::Fast';
 

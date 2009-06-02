@@ -16,6 +16,7 @@ with the DBIx::Class schema creation.
 
 use POE;
 use POE::Filter::Reference;
+use POE::Wheel::Run;
 use Class::Accessor::Fast;
 
 use Cache::FileCache;

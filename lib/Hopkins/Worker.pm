@@ -15,6 +15,7 @@ Hopkins::Queue->spawn_worker via POE::Component::JobQueue.
 
 use POE;
 use POE::Filter::Reference;
+use POE::Wheel::Run;
 use Class::Accessor::Fast;
 
 use YAML;
@@ -51,6 +52,7 @@ sub new
 				_start		=> 'start',
 				_stop		=> 'stop',
 
+				execute		=> 'execute',
 				stdout		=> 'stdout',
 				stderr		=> 'stderr',
 				done		=> 'done',
@@ -110,7 +112,6 @@ sub start
 {
 	my $self		= $_[OBJECT];
 	my $kernel		= $_[KERNEL];
-	my $heap		= $_[HEAP];
 
 	$self->work->date_started(DateTime->now);
 
@@ -123,6 +124,14 @@ sub start
 	$kernel->alias_set($self->alias);
 
 	Hopkins->log_debug('worker session created');
+
+	$kernel->post($self->alias => 'execute');
+}
+
+sub execute
+{
+	my $self		= $_[OBJECT];
+	my $kernel		= $_[KERNEL];
 
 	# determine the Program argument based upon what method
 	# we're using.  POE::Wheel::Run will execute both native
