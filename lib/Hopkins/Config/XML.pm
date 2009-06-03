@@ -14,6 +14,72 @@ in the reading and post-processing of the XML configuration
 in addition to providing a simple interface to accessing
 values when required.
 
+Hopkins::Config::XML will validate your configuration using
+XML Schema via XML::LibXML.  for complete information on the
+schema, see the XML Schema document in Hopkins::Config::XML.
+
+=head1 EXAMPLE
+
+ <?xml version="1.0" encoding="utf-8"?>
+ <hopkins>
+     <state>
+         <root>/var/lib/hopkins</root>
+     </state>
+
+     <plugin name="HMI">
+         <port>8088</port>
+     </plugin>
+
+     <plugin name="RPC">
+         <port>8080</port>
+     </plugin>
+
+     <database>
+         <dsn>dbi:mysql:database=hopkins;host=localhost</dsn>
+         <user>root</user>
+         <pass></pass>
+         <options>
+             <option name="AutoCommit" value="1" />
+             <option name="RaiseError" value="1" />
+             <option name="mysql_auto_reconnect" value="1" />
+             <option name="quote_char" value="" />
+             <option name="name_sep" value="." />
+         </options>
+     </database>
+
+     <queue name="general">
+         <concurrency>16</concurrency>
+     </queue>
+
+     <queue name="serial" onerror="halt">
+         <concurrency>1</concurrency>
+     </queue>
+
+     <task name="Sum" onerror="disable">
+         <class>MyApp::Job::Sum</class>
+         <queue>general</queue>
+     </task>
+
+     <task name="Report" onerror="disable" stack="no">
+         <class>MyApp::Job::Report</class>
+         <queue>serial</queue>
+         <schedule>
+             <cron>0 22 * 1-11 *</cron>
+             <cron>0 */4 * 12 * *</cron>
+         </schedule>
+         <options>
+             <option name="source" value="production" />
+             <option name="destination" value="reports@domain.com" />
+         </options>
+         <chain task="Sum">
+             <options>
+                 <option name="categories" value="Books" />
+                 <option name="categories" value="CDs" />
+             </options>
+         </chain>
+     </task>
+ </hopkins>
+
 =cut
 
 use DateTime;
@@ -34,14 +100,6 @@ use base qw(Class::Accessor::Fast Hopkins::Config);
 
 __PACKAGE__->mk_accessors(qw(config file monitor xml xsd));
 
-=head1 METHODS
-
-=over 4
-
-=item new
-
-=cut
-
 sub new
 {
 	my $self = shift->SUPER::new(@_);
@@ -54,10 +112,6 @@ sub new
 
 	return $self;
 }
-
-=item load
-
-=cut
 
 sub load
 {
@@ -364,8 +418,6 @@ sub loaded
 
 	return $self->config ? 1 : 0;
 }
-
-=back
 
 =head1 AUTHOR
 
