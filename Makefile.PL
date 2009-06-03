@@ -17,7 +17,7 @@ requires 'String::Escape'				=> '2002.001';
 # supporting classes
 requires 'List::Object'					=> '0.01';
 requires 'Tie::IxHash'					=> '1.21';
-requires 'Cache::File'					=> '2.04';
+requires 'Cache::FileCache'				=> 0;
 
 # date manipulation and testing
 requires 'DateTime'						=> '0.37';
@@ -30,8 +30,8 @@ requires 'Log::Log4perl'				=> '1.12';
 requires 'XML::Simple'					=> '2.18';
 
 # DBI/POE infrastructure
-requires 'DBIx::Class'					=> '0.08007';
-requires 'POE'							=> '0.9999';
+requires 'DBIx::Class'					=> '0.08103';
+requires 'POE'							=> '1.005';
 requires 'POE::API::Peek'				=> '1.34';
 requires 'POE::Component::JobQueue'		=> '0.55';
 requires 'POE::Wheel::Run'				=> '1.2179';
@@ -39,15 +39,18 @@ requires 'POE::Wheel::Run'				=> '1.2179';
 # required for HMI plugin
 requires 'POE::Component::Server::HTTP'	=> '0.09';
 requires 'Sys::Hostname::FQDN'			=> '0.10';
-requires 'Catalyst::Engine::Embeddable'	=> '0.0.1';
+requires 'Catalyst::Engine::Embeddable'	=> '0.000002';
 
 # required for RPC plugin
 requires 'POE::Component::Server::SOAP'	=> '1.11';
 
-build_requires 'Class::Accessor::Fast';
-build_requires 'Directory::Scratch';
-build_requires 'FindBin';
-build_requires 'Template';
+# required for the test suite
+test_requires 'Class::Accessor::Fast';
+test_requires 'Directory::Scratch';
+test_requires 'FindBin';
+test_requires 'Template';
+test_requires 'Test::MockObject';
+test_requires 'POE::API::Peek';
 
 #auto_install;
 WriteAll;
