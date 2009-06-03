@@ -283,6 +283,11 @@ sub init_config
 
 	eval "use $class";
 
+	if (my $err = $@) {
+		Hopkins->log_error("unable to create config object: $err");
+		return $kernel->post(manager => 'shutdown');
+	}
+
 	$self->config($class->new($self->hopkins->conf->[1]));
 
 	$kernel->call(manager => 'config_load');
