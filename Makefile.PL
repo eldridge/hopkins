@@ -24,6 +24,7 @@ requires 'DateTime::Set'				=> '0.25';
 # configuration and logging
 requires 'File::Monitor'				=> '0.10';
 requires 'Log::Log4perl'				=> '1.12';
+requires 'XML::LibXML'					=> '1.69';
 requires 'XML::Simple'					=> '2.18';
 
 # DBI/POE infrastructure
