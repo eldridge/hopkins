@@ -387,8 +387,11 @@ sub shutdown
 
 	foreach my $name ($self->config->get_queue_names) {
 		Hopkins->log_debug("posting stop event for $name queue");
-		$kernel->post($name => 'stop');
+	    $kernel->post(manager => queue_halt => $name);
 	}
+
+	$kernel->post(store => 'shutdown');
+	$kernel->alias_remove('manager');
 }
 
 =item scheduler
@@ -409,7 +412,7 @@ sub scheduler
 		next if not defined $task->schedule;
 
 		my $opts	= $task->options;
-		my $serial	= $task->run eq 'serial' ? 1 : 0;
+		my $serial	= $task->run && $task->run eq 'serial' ? 1 : 0;
 		my $last	= $task->schedule->previous($now);
 
 		Hopkins->log_debug("checking if $name is marked inactive");

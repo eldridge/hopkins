@@ -72,17 +72,18 @@ sub new
 		[
 			$self =>
 			{
-				_start	=> 'start',
-				_stop	=> 'stop',
+				_start		=> 'start',
+				_stop		=> 'stop',
 
-				init	=> 'init',
-				notify	=> 'notify',
-				proc	=> 'proc',
+				init		=> 'init',
+				notify		=> 'notify',
+				proc		=> 'proc',
+				shutdown	=> 'shutdown',
 
-				spawn	=> 'backend_spawn',
-				stdout	=> 'backend_notify',
-				stderr	=> 'backend_error',
-				done	=> 'backend_exited'
+				spawn		=> 'backend_spawn',
+				stdout		=> 'backend_notify',
+				stderr		=> 'backend_error',
+				done		=> 'backend_exited'
 			}
 		]
 	);
@@ -134,6 +135,20 @@ sub init
 
 	$self->backend(undef);
 	$kernel->post(store => 'spawn');
+}
+
+=item shutdown
+
+=cut
+
+sub shutdown
+{
+	my $self	= $_[OBJECT];
+	my $kernel	= $_[KERNEL];
+
+	$self->backend(undef);
+	$kernel->alias_remove('store');
+	$kernel->alarm('proc');
 }
 
 sub proc

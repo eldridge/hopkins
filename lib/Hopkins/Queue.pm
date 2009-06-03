@@ -47,8 +47,8 @@ sub new
 	$self->tasks(new Tie::IxHash);
 
 	$self->onerror(undef)
-		unless grep { $self->onerror eq $_ }
-		qw(halt freeze shutdown flush);
+		unless $self->onerror
+		and grep { $self->onerror eq $_ } qw(halt freeze shutdown flush);
 
 	$self->cache(new Cache::FileCache {
 		cache_root		=> $self->config->fetch('state/root')->stringify,
@@ -214,7 +214,7 @@ sub stop
 {
 	my $self = shift;
 
-	$self->kernel->post($self->alias => 'stop');
+	$self->kernel->post($self->alias => 'stop') if $self->kernel;
 }
 
 =item spawn_worker
