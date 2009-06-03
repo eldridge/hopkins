@@ -112,6 +112,9 @@ sub start
 	# set the alias for the current session
 	$kernel->alias_set('manager');
 
+	# log that we are starting up
+	Hopkins->log_info("starting hopkins version $Hopkins::VERSION");
+
 	# post events for initial setup
 	$kernel->call(manager => 'init_config');	# configuration file
 	$kernel->post(manager => 'init_store');		# database storage sessage
@@ -141,6 +144,8 @@ sub init_queues
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 
+	Hopkins->log_info('creating queues');
+
 	# create a passive queue for each configured queue.  we
 	# use POE::Component::JobQueue and leave the scheduling
 	# up to the manager session.
@@ -153,6 +158,7 @@ sub init_queues
 
 		$kernel->post(manager => queue_start => $name) unless $queue->halted;
 	}
+
 }
 
 sub queue_start
@@ -284,11 +290,20 @@ sub init_config
 	eval "use $class";
 
 	if (my $err = $@) {
-		Hopkins->log_error("unable to create config object: $err");
+		Hopkins->log_error("unable to load config class: $err");
 		return $kernel->post(manager => 'shutdown');
 	}
 
-	$self->config($class->new($self->hopkins->conf->[1]));
+	eval {
+		$self->config($class->new($self->hopkins->conf->[1]));
+		die 'constructor did not return a Hopkins::Config object'
+			if not UNIVERSAL::isa($self->config, 'Hopkins::Config');
+	};
+
+	if (my $err = $@) {
+		Hopkins->log_error("unable to create config object: $err");
+		return $kernel->post(manager => 'shutdown');
+	}
 
 	$kernel->call(manager => 'config_load');
 	$kernel->alarm(config_scan => time + $self->hopkins->scan);
@@ -303,7 +318,7 @@ sub init_plugins
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 
-	Hopkins->log_debug('initializing plugins');
+	Hopkins->log_info('loading plugins');
 
 	my $config	= $self->config;
 	my $plugins	= $self->plugins;
@@ -351,8 +366,10 @@ sub config_load
 
 	return unless $status->updated;
 
+	Hopkins->log_info('configuration loaded');
+
 	if ($status->store_modified) {
-		Hopkins->log_debug('database information changed');
+		Hopkins->log_info('store information changed');
 		$kernel->post(store => 'init');
 	}
 
@@ -477,7 +494,7 @@ sub enqueue
 		return HOPKINS_ENQUEUE_QUEUE_FROZEN;
 	}
 
-	if ($task->stack != -1 && $task->stack <= $queue->num_queued($task)) {
+	if ($task->stack && $task->stack <= $queue->num_queued($task)) {
 		Hopkins->log_warn("unable to enqueue $name; stack limit reached");
 		return HOPKINS_ENQUEUE_TASK_STACK_LIMIT;
 	}

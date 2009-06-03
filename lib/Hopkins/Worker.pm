@@ -76,6 +76,9 @@ sub inline
 	my $class	= shift;
 	my $params	= shift || {};
 
+	my $file = $class . '.pm';
+	$file =~ s{::}{/}g;
+
 	return sub
 	{
 		my $status = {};
@@ -88,7 +91,7 @@ sub inline
 		open STATUS, '>&STDOUT';
 		open STDOUT, '>&STDERR';
 
-		eval { require $class; $class->new({ options => $params })->run };
+		eval { require $file; $class->new({ options => $params })->run };
 
 		if (my $err = $@) {
 			print STDERR $err;
