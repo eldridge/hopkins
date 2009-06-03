@@ -5,20 +5,10 @@ use warnings;
 
 use lib 't/lib';
 
-use Test::MockObject;
-use POE;
-
 use TestEnvironment;
 use TestHelper;
 
 use_ok('Hopkins::Queue');
-
-no warnings 'redefine';
-
-sub Hopkins::log_debug		{ } #print "$_[1]\n" }
-sub Hopkins::log_info		{ } #print "$_[1]\n" }
-sub Hopkins::log_warn		{ } #print "$_[1]\n" }
-sub Hopkins::log_error		{ } #print "$_[1]\n" }
 
 # create a test environment.  this entails processing
 # hopkins and log4perl configuration files using templates

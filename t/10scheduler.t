@@ -1,4 +1,4 @@
-use Test::More tests => 38;
+use Test::More tests => 37;
 
 use strict;
 use warnings;
@@ -10,13 +10,6 @@ use TestHelper;
 use POE;
 
 use_ok('Hopkins');
-
-no warnings 'redefine';
-
-sub Hopkins::log_debug		{ } #print "$_[1]\n" }
-sub Hopkins::log_info		{ } #print "$_[1]\n" }
-sub Hopkins::log_warn		{ } #print "$_[1]\n" }
-sub Hopkins::log_error		{ } #print "$_[1]\n" }
 
 # create a test environment.  this entails processing
 # hopkins and log4perl configuration files using templates
@@ -106,8 +99,6 @@ ok($helper->resolve_alias('queue.parallel.worker.7'),	'session running: queue.pa
 
 #diag Dumper [ $helper->event_queue_dump ];
 #diag Dumper [ map { $helper->session_alias_list($_) } $helper->session_list ];
-
-POE::Kernel->stop;
 
 exit;
 

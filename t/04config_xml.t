@@ -9,11 +9,6 @@ use TestEnvironment;
 use Test::MockObject;
 use Test::MockObject::Extends;
 
-sub Hopkins::log_debug		{ } #print "$_[1]\n" }
-sub Hopkins::log_info		{ } #print "$_[1]\n" }
-sub Hopkins::log_warn		{ } #print "$_[1]\n" }
-sub Hopkins::log_error		{ } #print "$_[1]\n" }
-
 use_ok('Hopkins::Config::XML');
 
 my $env		= new TestEnvironment { source => 'hopkins.xml.tt' };
