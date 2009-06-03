@@ -4,7 +4,7 @@ use strict;
 
 =head1 NAME
 
-gsjobd - greenspan job daemon
+hopjobd - hopkins job daemon
 
 =head1 DESCRIPTION
 

@@ -10,11 +10,8 @@ author			'Mike Eldridge <diz@cpan.org>';
 license			'perl';
 version_from	'lib/Hopkins.pm';
 
-# command line tools
-requires 'Getopt::Attribute'			=> '1.44';
-requires 'String::Escape'				=> '2002.001';
-
 # supporting classes
+requires 'Class::Accessor::Fast'		=> '0.31';
 requires 'List::Object'					=> '0.01';
 requires 'Tie::IxHash'					=> '1.21';
 requires 'Cache::FileCache'				=> 0;
@@ -36,16 +33,7 @@ requires 'POE::API::Peek'				=> '1.34';
 requires 'POE::Component::JobQueue'		=> '0.55';
 requires 'POE::Wheel::Run'				=> '1.2179';
 
-# required for HMI plugin
-requires 'POE::Component::Server::HTTP'	=> '0.09';
-requires 'Sys::Hostname::FQDN'			=> '0.10';
-requires 'Catalyst::Engine::Embeddable'	=> '0.000002';
-
-# required for RPC plugin
-requires 'POE::Component::Server::SOAP'	=> '1.11';
-
 # required for the test suite
-test_requires 'Class::Accessor::Fast';
 test_requires 'Directory::Scratch';
 test_requires 'FindBin';
 test_requires 'Template';
