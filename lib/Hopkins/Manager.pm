@@ -334,9 +334,15 @@ sub init_plugins
 
 			$path =~ s{::}{/}g;
 
-			require "$path.pm";
+			eval {
+				require "$path.pm";
 
-			$plugins->{$name} = $package->new({ manager => $self, config => $options });
+				my $plugin = $package->new({ manager => $self, config => $options });
+
+				$plugins->{$name} = $plugin;
+			};
+
+			Hopkins->log_error("failed to load plugin $name: $@") if $@;
 		}
 	}
 }
