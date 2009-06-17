@@ -105,7 +105,7 @@ sub new
 	# logging error messages to the console using log4perl
 	# regardless of the configuration that the user loads.
 
-	eval { Log::Log4perl::init_and_watch($opts->{l4pconf}, $opts->{scan}) };
+	eval { Log::Log4perl->init_and_watch($opts->{l4pconf}, $opts->{scan}) };
 
 	my $l4perr = $@;
 	my $logger = Log::Log4perl->get_logger('hopkins');
