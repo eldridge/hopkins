@@ -81,6 +81,21 @@ sub inline
 
 	return sub
 	{
+		# immediately undefine the log4perl config watcher.
+		# the logic in Log::Log4perl->init_and_watch will
+		# use the existing configuration if it is called at
+		# a later time.  this will cause problems if any of
+		# the perl workers use init_and_watch.
+		#
+		# this should probably be considered a bug.  it's
+		# not init()ing and watching.  just more watching.
+
+		$Log::Log4perl::Config::WATCHER = undef;
+
+		# create a status hashref and a POE filter by which
+		# status information will be reported back to the
+		# controlling POE::Component::JobQueue worker.
+
 		my $status = {};
 		my $filter = new POE::Filter::Reference 'YAML';
 
