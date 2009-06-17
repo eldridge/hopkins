@@ -27,7 +27,7 @@ use Hopkins::Store::Backend;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(config cache events backend tries));
+__PACKAGE__->mk_accessors(qw(config cache events backend tries subscribers));
 
 use constant HOPKINS_STORE_EVENT_PROC_INTERVAL => 10;
 
@@ -48,6 +48,7 @@ sub new
 	return undef if not $self->config->loaded;
 
 	$self->events(new Tie::IxHash);
+	$self->subscribers({});
 
 	$self->cache(new Cache::FileCache {
 		cache_root		=> $self->config->fetch('state/root')->stringify,
@@ -77,6 +78,8 @@ sub new
 
 				init		=> 'init',
 				notify		=> 'notify',
+				subscribe	=> 'subscribe',
+				unsubscribe	=> 'unsubscribe',
 				proc		=> 'proc',
 				shutdown	=> 'shutdown',
 
@@ -184,6 +187,20 @@ sub evtflush
 	}
 }
 
+sub subscribe
+{
+	my $self = $_[OBJECT];
+
+	$self->subscribers->{$_} = 1 foreach @_[ARG0..$#_];
+}
+
+sub unsubscribe
+{
+	my $self = $_[OBJECT];
+
+	delete $self->subscribers->{$_} foreach @_[ARG0..$#_];
+}
+
 sub notify
 {
 	my $self	= $_[OBJECT];
@@ -197,6 +214,9 @@ sub notify
 
 	$self->events->Push($id => \@args);
 	$self->write_state;
+
+	# notify any other interested sessions
+	$kernel->post($_ => notify => @args) foreach keys %{ $self->subscribers };
 }
 
 sub write_state
