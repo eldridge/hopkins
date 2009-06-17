@@ -437,6 +437,8 @@ sub scheduler
 		my $now		= DateTime->now;
 		my $task	= $self->config->get_task_info($name);
 
+		$now->truncate(to => 'seconds');
+
 		next if not defined $task->schedule;
 
 		my $opts	= $task->options;
@@ -445,6 +447,9 @@ sub scheduler
 
 		Hopkins->log_debug("checking if $name is marked inactive");
 		next if not $task->enabled;
+
+		Hopkins->log_debug("checking if $name is scheduled to execute");
+		next if not $task->schedule->contains($now);
 
 		#Hopkins->log_debug("checking if $name has been executed since $last");
 		#next if $rsTask->task_executed_since($name, $last);
