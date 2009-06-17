@@ -19,7 +19,7 @@
 	</xs:complexType>
 
 	<xs:complexType name="plugin">
-		<xs:sequence>
+		<xs:sequence maxOccurs="unbounded">
 			<xs:any minOccurs="0" processContents="skip" />
 		</xs:sequence>
 		<xs:attribute name="name" type="xs:string" />
