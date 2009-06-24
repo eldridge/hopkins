@@ -451,7 +451,7 @@ __DATA__
 
 	<xs:complexType name="plugin">
 		<xs:sequence>
-			<xs:any minOccurs="0" processContents="skip" />
+			<xs:any minOccurs="0" maxOccurs="unbounded" processContents="skip" />
 		</xs:sequence>
 		<xs:attribute name="name" type="xs:string" />
 	</xs:complexType>
