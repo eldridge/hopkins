@@ -15,20 +15,37 @@ Hopkins - POE powered job management system
 
 #sub POE::Kernel::TRACE_REFCNT () { 1 }
 
+use base 'Class::Accessor::Fast';
+
 use POE qw(Component::JobQueue Component::Server::SOAP Wheel::Run);
 
+use Class::Accessor::Fast;
 use POE::API::Peek;
 
-use Class::Accessor::Fast;
-
+use DateTime;
+use DateTime::Event::MultiCron;
+use DateTime::Set;
 use Log::Log4perl;
 use Log::Log4perl::Level;
 
 use Hopkins::Manager;
 
-use base 'Class::Accessor::Fast';
-
 __PACKAGE__->mk_accessors(qw(conf l4pconf scan poll manager));
+
+{
+	package DateTime::Duration;
+
+	sub stringify
+	{
+		my $self = shift;
+
+		my @units = $self->in_units('days', 'hours', 'minutes', 'seconds');
+
+		join ' ', map { $units[0] ? shift(@units) . $_ : () } qw(d h m s);
+	}
+
+	use overload '""' => \&stringify;
+}
 
 # prevent perl from bitching and complaining about prototype
 # mismatches and constant subroutine redefinitions.  the

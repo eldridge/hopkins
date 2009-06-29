@@ -262,6 +262,8 @@ sub queue_failure
 		$queue->$action($error);
 	}
 
+	$queue->error($error);
+
 	Hopkins->log_error($msg);
 }
 
@@ -434,7 +436,7 @@ sub scheduler
 	Hopkins->log_debug('checking for tasks to enqueue');
 
 	foreach my $name ($self->config->get_task_names) {
-		my $now		= DateTime->now;
+		my $now		= DateTime->now(time_zone => 'local');
 		my $task	= $self->config->get_task_info($name);
 
 		$now->truncate(to => 'seconds');
@@ -514,7 +516,7 @@ sub enqueue
 	# Data::UUID, add it to the queue, and flush the queue's
 	# state to disk.
 
-	my $now		= DateTime->now;
+	my $now		= DateTime->now(time_zone => 'local');
 	my $work	= new Hopkins::Work;
 
 	$work->id($ug->create_str);
@@ -552,7 +554,7 @@ sub dequeue
 
 	Hopkins->log_debug('dequeued task ' . $work->task->name . ' (' . $work->id . ')');
 
-	$work->date_completed(DateTime->now);
+	$work->date_completed(DateTime->now(time_zone => 'local'));
 
 	$work->queue->tasks->Delete($work->id);
 	$work->queue->write_state;

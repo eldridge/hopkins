@@ -64,6 +64,22 @@ __PACKAGE__->add_columns(
 		is_auto_increment	=> 0,
 		is_foreign_key		=> 0
 	},
+	failed => {
+		data_type			=> 'tinyint',
+		size				=> 1,
+		is_nullable			=> 0,
+		default_value		=> 0,
+		is_auto_increment	=> 0,
+		is_foreign_key		=> 0
+	},
+	aborted => {
+		data_type			=> 'tinyint',
+		size				=> 1,
+		is_nullable			=> 0,
+		default_value		=> 0,
+		is_auto_increment	=> 0,
+		is_foreign_key		=> 0
+	},
 	date_enqueued => {
 		data_type			=> 'datetime',
 		size				=> 0,

@@ -22,6 +22,15 @@ use base 'Class::Accessor::Fast';
 
 __PACKAGE__->mk_accessors(qw(id task options queue output succeeded date_enqueued date_to_execute date_started date_completed));
 
+sub new
+{
+	my $self = shift->SUPER::new(@_);
+
+	$self->succeeded(0) if not defined $self->succeeded;
+
+	return $self;
+}
+
 sub serialize
 {
 	my $self = shift;
