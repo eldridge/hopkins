@@ -18,6 +18,7 @@ file to use to determine the database connection info.
 
 use Getopt::Compact;
 
+use Hopkins;
 use Hopkins::Config::XML;
 use Hopkins::Store::Schema;
 

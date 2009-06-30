@@ -56,87 +56,84 @@ sub new
 		directory_umask	=> 0077
 	});
 
-	if (my $flag = $self->cache->get('frozen')) {
-		$self->frozen($flag eq '1' ? 1 : 0);
-	}
-
-	if (my $flag = $self->cache->get('halted')) {
-		$self->halted($flag eq '1' ? 1 : 0);
-	}
-
-	$self->error($self->cache->get('error'));
-
-	if (my $tasks = $self->cache->get('tasks')) {
-		last if not ref $tasks eq 'ARRAY';
-
-		foreach my $href (@$tasks) {
-			my $work = new Hopkins::Work;
-			my $date = undef;
-
-			eval { $date = DateTime::Format::ISO8601->parse_datetime($href->{date_enqueued}) };
-
-			if (my $err = $@) {
-				Hopkins->log_error('unable to parse date/time information when reading state');
-				next;
-			} else {
-				$work->date_enqueued($date);
-			}
-
-			# FIXME: date_to_execute not yet implemented
-
-			#eval { $date = DateTime::Format::ISO8601->parse_datetime($href->{date_to_execute}) };
-
-			#if (my $err = $@) {
-			#	Hopkins->log_error('unable to parse date/time information when reading state');
-			#	next;
-			#} else {
-			#	$work->date_to_execute($date);
-			#}
-
-			if (my $val = $href->{date_started}) {
-				eval { $date = DateTime::Format::ISO8601->parse_datetime($href->{date_started}) };
-
-				if (my $err = $@) {
-					Hopkins->log_error('unable to parse date/time information when reading state');
-					next;
-				} else {
-					$work->date_started($date);
-				}
-			}
-
-			if (my $task = $self->config->get_task_info($href->{task})) {
-				$work->task($task);
-			} else {
-				Hopkins->log_error("unable to locate task '$href->{task}' when reading state");
-				next;
-			}
-
-			if (my $id = $href->{id}) {
-				$work->id($id);
-			} else {
-				Hopkins->log_error('unable to determine task ID when reading state');
-				next;
-			}
-
-			$work->queue($self);
-			$work->options($href->{options});
-
-			# FIXME: work->row not yet implemented
-			#$work->row
-
-			if (not defined $work->date_started) {
-				$self->tasks->Push($work->id => $work);
-			} else {
-				# it was already started, but we don't know
-				# what happened to it.  assume that it
-				# failed and post an error event.
-
-				# FIXME: do this
-			}
-		}
-	}
+	$self->read_state;
+	$self->write_state;
 
 	return $self;
+}
+
+sub read_state
+{
+	my $self = shift;
+
+	$self->frozen($self->cache->get('frozen') ? 1 : 0);
+	$self->halted($self->cache->get('halted') ? 1 : 0);
+	$self->error($self->cache->get('error'));
+
+	my $aref = $self->cache->get('tasks');
+
+	return if not ref $aref eq 'ARRAY';
+
+	foreach my $href (@$aref) {
+		my $work = new Hopkins::Work;
+		my $date = undef;
+
+		$work->queue($self);
+		$work->options($href->{options});
+
+		if (my $id = $href->{id}) {
+			$work->id($id);
+		} else {
+			Hopkins->log_error('unable to determine task ID when reading state');
+			next;
+		}
+
+		if (my $date = Hopkins->parse_datetime($href->{date_enqueued})) {
+			$work->date_enqueued($date);
+		} else {
+			Hopkins->log_error('unable to parse date/time information when reading state');
+		}
+
+		# FIXME: date_to_execute not yet implemented
+
+		if (my $date = Hopkins->parse_datetime($href->{date_to_execute})) {
+			$work->date_to_execute($date);
+		} else {
+			#Hopkins->log_error('unable to parse date/time information when reading state');
+			$work->date_to_execute(DateTime->now(time_zone => 'local'));
+		}
+
+		if (my $val = $href->{date_started}) {
+			if (my $date = Hopkins->parse_datetime($href->{date_started})) {
+				$work->date_started($date);
+			} else {
+				Hopkins->log_error('unable to parse date/time information when reading state');
+			}
+		}
+
+		# attempt to locate the referenced task.  if the
+		# configuration has changed and we can't locate the
+		# referenced task, we'll want to halt the queue
+		# until an operator can take a look at it.
+
+		if (my $task = $self->config->get_task_info($href->{task})) {
+			$work->task($task);
+		} else {
+			Hopkins->log_error("unable to locate task '$href->{task}' when reading state");
+
+			$self->kernel->post(store => notify => task_aborted => $work->serialize);
+		}
+
+		# if the task was already started or has an invalid
+		# vconfiguration, mark it as orphaned.  otherwise,
+		# go ahead and queue it up for execution.
+
+		if ($work->date_started or not defined $work->task) {
+			$self->kernel->post(store => notify => task_orphaned => $work->serialize);
+		} else {
+			$self->tasks->Push($work->id => $work);
+		}
+	}
 }
 
 sub spawn

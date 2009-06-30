@@ -281,6 +281,60 @@ sub process_event_task_completed
 	$task->update;
 }
 
+=item process_event_task_aborted
+
+a task was aborted: record it in the database
+
+=cut
+
+sub process_event_task_aborted
+{
+	my $self = shift;
+	my $href = shift;
+
+	my $rsTask	= $self->schema->resultset('Task');
+	my $task	= $rsTask->find_or_create({ id => $href->{id} });
+
+	$task->name($href->{task}) if not defined $task->name;
+	$task->queue($href->{queue}) if not defined $task->queue;
+	$task->completed(0);
+	$task->succeeded(0);
+	$task->failed(0);
+	$task->aborted(1);
+	$task->date_completed($href->{date_completed});
+	$task->create_related(output => { text => $href->{output} })
+		if defined $href->{output};
+
+	$task->update;
+}
+
+=item process_event_task_orphaned
+
+a task was lost: record it in the database
+
+=cut
+
+sub process_event_task_orphaned
+{
+	my $self = shift;
+	my $href = shift;
+
+	my $rsTask	= $self->schema->resultset('Task');
+	my $task	= $rsTask->find_or_create({ id => $href->{id} });
+
+	$task->name($href->{task}) if not defined $task->name;
+	$task->queue($href->{queue}) if not defined $task->queue;
+	$task->completed(1);
+	$task->succeeded(0);
+	$task->failed(0);
+	$task->aborted(0);
+	$task->date_completed($href->{date_completed});
+	$task->create_related(output => { text => $href->{output} })
+		if defined $href->{output};
+
+	$task->update;
+}
+
 =back
 
 =head1 AUTHOR

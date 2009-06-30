@@ -60,6 +60,7 @@ sub new
 		last if not ref $events eq 'ARRAY';
 
 		foreach my $href (@$events) {
+			next if not ref $href eq 'HASH';
 			next if not defined $href->{id};
 			next if not defined $href->{contents};
 

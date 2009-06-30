@@ -38,12 +38,12 @@ sub serialize
 	return
 	{
 		id				=> $self->id,
-		task			=> $self->task->name,
+		task			=> $self->task ? $self->task->name : undef,
 		options			=> $self->options,
 		succeeded		=> $self->succeeded,
 		output			=> $self->output,
-		date_enqueued	=> $self->date_enqueued->iso8601,
-		#date_to_execute	=> $self->date_to_execute->iso8601,
+		date_enqueued	=> $self->date_enqueued ? $self->date_enqueued->iso8601 : undef,
+		date_to_execute	=> $self->date_to_execute->iso8601,
 		date_started	=> $self->date_started ? $self->date_started->iso8601 : undef,
 		date_completed	=> $self->date_completed ? $self->date_completed->iso8601 : undef
 	};

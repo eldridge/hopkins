@@ -189,6 +189,24 @@ sub get_running_sessions
 	return map { POE::Kernel->alias($_) } $api->session_list;
 }
 
+=item parse_datetime
+
+DateTime::Format::ISO8601->parse_datetime wrapper that traps
+exceptions.  this really shouldn't be necessary.
+
+=cut
+
+sub parse_datetime
+{
+	my $self = shift;
+
+	my $date;
+
+	eval { $date = DateTime::Format::ISO8601->parse_datetime(@_) };
+
+	return $@ ? undef : $date;
+}
+
 =item get_logger
 
 returns a Log::Log4perl logger for the current session.  the
