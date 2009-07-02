@@ -20,6 +20,13 @@ use Hopkins::TaskOption;
 
 __PACKAGE__->mk_accessors(qw(name class cmd queue stack schedule options chain run enabled onerror));
 
+sub params
+{
+	my $self = shift;
+
+	return { map { $_->value ? ($_->name => $_->value) : () } @{ $self->options } };
+}
+
 =back
 
 =head1 AUTHOR
