@@ -90,6 +90,7 @@ sub new
 				queue_flush		=> 'queue_flush',
 
 				scheduler		=> 'scheduler',
+				executor		=> 'executor',
 				enqueue			=> 'enqueue',
 				dequeue			=> 'dequeue',
 
@@ -122,7 +123,7 @@ sub start
 	$kernel->post(manager => 'init_queues');	# worker queue sessions
 
 	# go ahead and kick off the scheduler too
-	$kernel->alarm(scheduler => time + $self->hopkins->poll);
+	#$kernel->alarm(scheduler => time + $self->hopkins->poll);
 }
 
 =item stop
@@ -383,6 +384,7 @@ sub config_load
 	}
 
 	$kernel->post(manager => 'init_plugins');
+	$kernel->post(manager => 'scheduler');
 }
 
 =item config_scan
@@ -434,39 +436,58 @@ sub scheduler
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 
-	Hopkins->log_debug('checking for tasks to enqueue');
+	my $now = DateTime->now(time_zone => 'local');
+
+	$now->truncate(to => 'seconds');
 
 	foreach my $name ($self->config->get_task_names) {
-		my $now		= DateTime->now(time_zone => 'local');
-		my $task	= $self->config->get_task_info($name);
-
-		$now->truncate(to => 'seconds');
+		my $task = $self->config->get_task_info($name);
 
 		next if not defined $task->schedule;
-
-		my $opts	= $task->options;
-		my $serial	= $task->run && $task->run eq 'serial' ? 1 : 0;
-		my $last	= $task->schedule->previous($now);
-
-		Hopkins->log_debug("checking if $name is marked inactive");
 		next if not $task->enabled;
 
-		Hopkins->log_debug("checking if $name is scheduled to execute");
-		next if not $task->schedule->contains($now);
+		my $next = $task->schedule->next($now);
 
-		#Hopkins->log_debug("checking if $name has been executed since $last");
-		#next if $rsTask->task_executed_since($name, $last);
+		Hopkins->log_debug('scheduling ' . $task->name . ' for ' . $next->iso8601);
 
-		#Hopkins->log_debug("checking if $name is currently executing");
-		#next if $rsTask->task_executing_now($name) and $serial;
-
-		my $state = $kernel->call(manager => enqueue => $name => $opts);
-
-		Hopkins->log_error("failure in scheduler while attempting to enqueue $name")
-			if not $state;
+		$kernel->alarm_add(executor => $next->epoch => $task);
 	}
+}
 
-	$kernel->alarm(scheduler => time + $self->hopkins->poll);
+=item executor
+
+=cut
+
+sub executor
+{
+	my $self	= $_[OBJECT];
+	my $kernel	= $_[KERNEL];
+	my $task	= $_[ARG0];
+
+	Hopkins->log_debug('executor alarm for ' . $task->name);
+
+	my $now		= DateTime->now(time_zone => 'local');
+
+	Hopkins->log_debug('current time: ' . $now->iso8601);
+
+	#my $opts	= $task->options;
+	#my $serial	= $task->run && $task->run eq 'serial' ? 1 : 0;
+	#my $last	= $task->schedule->previous($now);
+
+	#Hopkins->log_debug("checking if $name has been executed since $last");
+	#next if $rsTask->task_executed_since($name, $last);
+
+	#Hopkins->log_debug("checking if $name is currently executing");
+	#next if $rsTask->task_executing_now($name) and $serial;
+
+	my $state	= $kernel->call(manager => enqueue => $task->name => $task->params);
+	my $next	= $task->schedule->next($now);
+
+	Hopkins->log_error('failed to enqueue ' . $task->name) if not $state;
+
+	Hopkins->log_debug('scheduling ' . $task->name . ' for ' . $next->iso8601);
+
+	$kernel->alarm_add(executor => $next->epoch => $task);
 }
 
 =item enqueue
@@ -488,6 +509,7 @@ sub enqueue
 	my $kernel	= $_[KERNEL];
 	my $name	= $_[ARG0];
 	my $opts	= $_[ARG1];
+	my $when	= $_[ARG2] || DateTime->now(time_zone => 'local');
 
 	my $task = $self->config->get_task_info($name);
 
@@ -508,6 +530,12 @@ sub enqueue
 		return HOPKINS_ENQUEUE_QUEUE_FROZEN;
 	}
 
+	if ($when and not UNIVERSAL::isa($when, 'DateTime')) {
+		eval { $when = DateTime::Format::ISO8601->parse_datetime($when) };
+		Hopkins->log_warn("unable to enqueue $name; invalid date/time specified");
+		return HOPKINS_ENQUEUE_DATETIME_INVALID;
+	}
+
 	if ($task->stack && $task->stack <= $queue->num_queued($task)) {
 		Hopkins->log_warn("unable to enqueue $name; stack limit reached");
 		return HOPKINS_ENQUEUE_TASK_STACK_LIMIT;
@@ -525,6 +553,11 @@ sub enqueue
 	$work->queue($queue);
 	$work->options($opts);
 	$work->date_enqueued($now);
+	$work->date_to_execute($when);
+
+	# FIXME: something different has to be done for deferred
+	# work.  "enqueued" tasks should be displayed separately
+	# from "scheduled" tasks anyhow...
 
 	$queue->tasks->Push($work->id => $work);
 	$queue->write_state;
