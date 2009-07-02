@@ -14,9 +14,9 @@ it.
 
 =cut
 
-use Class::Accessor::Fast;
-
 use base 'Class::Accessor::Fast';
+
+use Hopkins::TaskOption;
 
 __PACKAGE__->mk_accessors(qw(name class cmd queue stack schedule options chain run enabled onerror));
 

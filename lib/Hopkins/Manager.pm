@@ -31,7 +31,7 @@ use Hopkins::Constants;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(hopkins config plugins queues));
+__PACKAGE__->mk_accessors(qw(kernel hopkins config plugins queues));
 
 my $ug = new Data::UUID;
 
@@ -49,6 +49,7 @@ sub new
 
 	$self->plugins({});
 	$self->queues({});
+	$self->kernel($poe_kernel);
 
 	# create the POE Session that will be the bread and butter
 	# of the job daemon's normal function.  the manager session
