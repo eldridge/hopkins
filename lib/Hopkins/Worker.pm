@@ -13,6 +13,8 @@ Hopkins::Queue->spawn_worker via POE::Component::JobQueue.
 
 =cut
 
+use base 'Class::Accessor::Fast';
+
 use POE;
 use POE::Filter::Reference;
 use POE::Wheel::Run;
@@ -20,9 +22,9 @@ use Class::Accessor::Fast;
 
 use YAML;
 
-use base 'Class::Accessor::Fast';
+use Hopkins::Worker::Native;
 
-__PACKAGE__->mk_accessors(qw(alias postback work params child status timer));
+__PACKAGE__->mk_accessors(qw(alias postback work child status timer));
 
 use constant HOPKINS_WORKER_MAX_STATUS_WAIT => 10;
 
@@ -66,62 +68,6 @@ sub new
 	return $self;
 }
 
-=item closure
-
-=cut
-
-sub inline
-{
-	my $self	= shift;
-	my $class	= shift;
-	my $params	= shift || {};
-
-	my $file = $class . '.pm';
-	$file =~ s{::}{/}g;
-
-	return sub
-	{
-		# immediately undefine the log4perl config watcher.
-		# the logic in Log::Log4perl->init_and_watch will
-		# use the existing configuration if it is called at
-		# a later time.  this will cause problems if any of
-		# the perl workers use init_and_watch.
-		#
-		# this should probably be considered a bug.  it's
-		# not init()ing and watching.  just more watching.
-
-		$Log::Log4perl::Config::WATCHER = undef;
-
-		# create a status hashref and a POE filter by which
-		# status information will be reported back to the
-		# controlling POE::Component::JobQueue worker.
-
-		my $status = {};
-		my $filter = new POE::Filter::Reference 'YAML';
-
-		# redirect STDOUT to STDERR so that we can use
-		# the original STDOUT pipe to report status
-		# information back to hopkins via YAML
-
-		open STATUS, '>&STDOUT';
-		open STDOUT, '>&STDERR';
-
-		eval { require $file; $class->new({ options => $params })->run };
-
-		if (my $err = $@) {
-			print STDERR $err;
-			$status->{error} = $err;
-			Hopkins->log_worker_stderr($self->work->task->name, $err);
-		}
-
-		# make sure to close the handle so that hopkins will
-		# receive the information before the child exits.
-
-		print STATUS $filter->put([ $status ])->[0];
-		close STATUS;
-	}
-}
-
 =item start
 
 =cut
@@ -157,7 +103,7 @@ sub execute
 	# whether the argument is a coderef or a simple scalar.
 
 	my $program = $self->work->task->class
-		? $self->inline($self->work->task->class, $self->params)
+		? new Hopkins::Worker::Native { work => $self->work }
 		: $self->work->task->cmd;
 
 	# construct the arguments neccessary for POE::Wheel::Run
