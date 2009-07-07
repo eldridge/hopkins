@@ -20,7 +20,7 @@ use Class::Accessor::Fast;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(id task options queue output succeeded date_enqueued date_to_execute date_started date_completed));
+__PACKAGE__->mk_accessors(qw(id worker task options queue output succeeded date_enqueued date_to_execute date_started date_completed));
 
 sub new
 {

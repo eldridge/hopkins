@@ -77,6 +77,7 @@ sub start
 	my $self		= $_[OBJECT];
 	my $kernel		= $_[KERNEL];
 
+	$self->work->worker($self);
 	$self->work->date_started(DateTime->now);
 
 	$kernel->post(store => notify => task_started => $self->work->serialize);
