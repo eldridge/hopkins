@@ -535,8 +535,10 @@ sub enqueue
 
 	if ($when and not UNIVERSAL::isa($when, 'DateTime')) {
 		eval { $when = DateTime::Format::ISO8601->parse_datetime($when) };
-		Hopkins->log_warn("unable to enqueue $name; invalid date/time specified");
-		return HOPKINS_ENQUEUE_DATETIME_INVALID;
+		if ($@) {
+			Hopkins->log_warn("unable to enqueue $name; invalid date/time specified");
+			return HOPKINS_ENQUEUE_DATETIME_INVALID;
+		}
 	}
 
 	# ensure that we don't stack tasks if requested

@@ -78,7 +78,7 @@ sub start
 	my $kernel		= $_[KERNEL];
 
 	$self->work->worker($self);
-	$self->work->date_started(DateTime->now);
+	$self->work->date_started(DateTime->now(time_zone => 'local'));
 
 	$kernel->post(store => notify => task_started => $self->work->serialize);
 

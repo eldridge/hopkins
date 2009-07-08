@@ -230,6 +230,7 @@ sub process_event_task_enqueued
 	$task->name($href->{task}) if not defined $task->name;
 	$task->queue($href->{queue}) if not defined $task->queue;
 	$task->date_enqueued($href->{date_enqueued});
+	$task->date_to_execute($href->{date_to_execute});
 
 	$task->update;
 }
