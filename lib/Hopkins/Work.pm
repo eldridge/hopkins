@@ -40,6 +40,7 @@ sub serialize
 	{
 		id				=> $self->id,
 		task			=> $self->task ? $self->task->name : undef,
+		queue			=> $self->queue->name,
 		options			=> $self->options,
 		succeeded		=> $self->succeeded,
 		output			=> $self->output,

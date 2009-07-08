@@ -92,7 +92,7 @@ sub new
 				scheduler		=> 'scheduler',
 				executor		=> 'executor',
 				enqueue			=> 'enqueue',
-				dequeue			=> 'dequeue',
+				complete		=> 'complete',
 
 				shutdown		=> 'shutdown'
 			}
@@ -470,16 +470,6 @@ sub executor
 
 	Hopkins->log_debug('current time: ' . $now->iso8601);
 
-	#my $opts	= $task->options;
-	#my $serial	= $task->run && $task->run eq 'serial' ? 1 : 0;
-	#my $last	= $task->schedule->previous($now);
-
-	#Hopkins->log_debug("checking if $name has been executed since $last");
-	#next if $rsTask->task_executed_since($name, $last);
-
-	#Hopkins->log_debug("checking if $name is currently executing");
-	#next if $rsTask->task_executing_now($name) and $serial;
-
 	my $state	= $kernel->call(manager => enqueue => $task->name => $task->params);
 	my $next	= $task->schedule->next($now);
 
@@ -492,14 +482,16 @@ sub executor
 
 =item enqueue
 
-queue a task by posting to POE::Component::JobQueue session.
-if the destination queue is not running, no event will be
-posted and a 0 will be returned to the caller.
+enqueue a task by creating a Work object and adding it to
+the destination Queue object's list.  if the destination
+queue is not running, no Work will be created and an error
+0 will be returned to the caller.
 
-this state can be posted to by any session, but is primarily
-utilized by the manager session's scheduler event.  the RPC
-session exposes an enqueue method via SOAP that also posts
-to this event.
+this state may be posted to by any session, but is primarily
+utilized by the manager session's executor alarms.  the RPC
+plugin exposes an enqueue method via SOAP that posts to this
+event.  the HMI plugin also exposes an enqueuing mechanism
+via a web interface.
 
 =cut
 
@@ -514,6 +506,7 @@ sub enqueue
 	my $task	= $self->config->get_task_info($name);
 	my $now		= DateTime->now(time_zone => 'local');
 	my $when	= $qopts->{when} || $now;
+	my $pri		= $qopts->{priority} || 5;
 
 	# make sure the Task exists
 
@@ -548,7 +541,7 @@ sub enqueue
 
 	# ensure that we don't stack tasks if requested
 
-	if ($task->stack && $task->stack <= $queue->num_queued($task)) {
+	if ($task->stack && $when <= $now && $task->stack <= $queue->num_queued($task)) {
 		Hopkins->log_warn("unable to enqueue $name; stack limit reached");
 		return HOPKINS_ENQUEUE_TASK_STACK_LIMIT;
 	}
@@ -564,8 +557,9 @@ sub enqueue
 	$work->task($task);
 	$work->queue($queue);
 	$work->options($topts);
+	$work->priority($pri);
 	$work->date_enqueued($now);
-	$work->date_to_execute($qopts->{when});
+	$work->date_to_execute($when);
 
 	# queue the Work and flush Queue state to disk
 
@@ -581,15 +575,13 @@ sub enqueue
 	return HOPKINS_ENQUEUE_OK;
 }
 
-sub dequeue
+sub complete
 {
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
-	my $params	= $_[ARG0];
+	my $work	= $_[ARG0]->[0];
 
-	my $work	= $params->[0];
-
-	Hopkins->log_debug('dequeued task ' . $work->task->name . ' (' . $work->id . ')');
+	Hopkins->log_debug('completed task ' . $work->task->name . ' (' . $work->id . ')');
 
 	$work->date_completed(DateTime->now(time_zone => 'local'));
 

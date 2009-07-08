@@ -171,8 +171,8 @@ sub spawn
 		{
 			#PollInterval	=> $global->{poll},
 			PollInterval	=> 15,
-			#AckAlias		=> 'manager',
-			#AckState		=> 'completed'
+			AckAlias		=> 'manager',
+			AckState		=> 'complete'
 		}
 	);
 }
@@ -234,7 +234,7 @@ sub fetch_and_spawn_worker
 	my $self		= shift;
 	my $postback	= shift;
 
-	Hopkins->log_debug('polling ' . $self->name . ' queue for tasks to execute');
+	#Hopkins->log_debug('polling ' . $self->name . ' queue for tasks to execute');
 
 	if (my $work = $self->dequeue) {
 		my $args =
