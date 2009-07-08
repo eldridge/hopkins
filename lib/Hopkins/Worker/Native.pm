@@ -17,7 +17,7 @@ does pre-execution cleansing of the log4perl environment.
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(work));
+__PACKAGE__->mk_accessors(qw(work status filter));
 
 =head1 METHODS
 
@@ -31,6 +31,13 @@ sub new
 {
 	my $self = shift->SUPER::new(@_);
 
+	# create a POE::Filter object; status information will
+	# be reported back to the controlling worker object via
+	# this filter.
+
+	$self->filter(new POE::Filter::Reference 'YAML');
+	$self->status({});
+
 	return sub { $self->execute };
 }
 
@@ -41,6 +48,24 @@ sub new
 sub execute
 {
 	my $self = shift;
+
+	# begin processing
+
+	eval { $self->_execute };
+
+	if (my $err = $@) {
+		Hopkins->log_worker_stderr($self->work->task->name, "execution failed: $err");
+		$self->status->{error} = $err unless $self->status->{terminated};
+	}
+
+	$self->report;
+}
+
+sub _execute
+{
+	my $self = shift;
+
+	$SIG{TERM} = sub { $self->status->{terminated} = 1 and die 'terminated' };
 
 	my $class	= $self->work->task->class;
 	my $file	= "$class.pm";
@@ -58,13 +83,6 @@ sub execute
 
 	$Log::Log4perl::Config::WATCHER = undef;
 
-	# create a status hashref and a POE filter by which
-	# status information will be reported back to the
-	# controlling POE::Component::JobQueue worker.
-
-	my $status = {};
-	my $filter = new POE::Filter::Reference 'YAML';
-
 	# redirect STDOUT to STDERR so that we can use
 	# the original STDOUT pipe to report status
 	# information back to hopkins via YAML
@@ -74,16 +92,23 @@ sub execute
 
 	eval { require $file; $class->new({ options => $self->work->options })->run };
 
+	$SIG{TERM} = 'IGNORE';
+
 	if (my $err = $@) {
 		print STDERR $err;
-		$status->{error} = $err;
+		$self->status->{error} = $err unless $self->status->{terminated};
 		Hopkins->log_worker_stderr($self->work->task->name, $err);
 	}
+}
+
+sub report
+{
+	my $self = shift;
 
 	# make sure to close the handle so that hopkins will
 	# receive the information before the child exits.
 
-	print STATUS $filter->put([ $status ])->[0];
+	print STATUS $self->filter->put([ $self->status ])->[0];
 	close STATUS;
 }
 

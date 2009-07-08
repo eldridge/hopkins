@@ -55,6 +55,7 @@ sub new
 				_stop		=> 'stop',
 
 				execute		=> 'execute',
+				terminate	=> 'terminate',
 				stdout		=> 'stdout',
 				stderr		=> 'stderr',
 				done		=> 'done',
@@ -180,16 +181,31 @@ sub reap
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 
+	my $task = $self->work->task->name;
+
 	if ($self->status->{error}) {
-		Hopkins->log_error('worker failure executing ' . $self->work->task->name);
+		Hopkins->log_error("worker failure executing $task");
 		$kernel->call(manager => queue_failure => $self->work->queue, $self->status->{error});
 		$self->work->succeeded(0);
 	} else {
-		Hopkins->log_info('worker successfully executed ' . $self->work->task->name);
-		$self->work->succeeded(1);
+		if ($self->status->{terminated}) {
+			Hopkins->log_info("worker terminated executing $task");
+			$self->work->aborted(1);
+		} else {
+			Hopkins->log_info("worker successfully executed $task");
+			$self->work->succeeded(1);
+		}
 	}
 
 	$kernel->yield('shutdown');
+}
+
+sub terminate
+{
+	my $self	= $_[OBJECT];
+	my $kernel	= $_[KERNEL];
+
+	$self->child->kill;
 }
 
 sub shutdown

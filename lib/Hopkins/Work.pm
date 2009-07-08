@@ -20,13 +20,15 @@ use Class::Accessor::Fast;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(id worker task priority options queue output succeeded date_enqueued date_to_execute date_started date_completed));
+__PACKAGE__->mk_accessors(qw(id worker task priority options queue output succeeded failed aborted date_enqueued date_to_execute date_started date_completed));
 
 sub new
 {
 	my $self = shift->SUPER::new(@_);
 
 	$self->succeeded(0)	if not defined $self->succeeded;
+	$self->failed(0)	if not defined $self->failed;
+	$self->aborted(0)	if not defined $self->aborted;
 	$self->priority(5)	if not defined $self->priority;
 
 	return $self;
@@ -41,8 +43,11 @@ sub serialize
 		id				=> $self->id,
 		task			=> $self->task ? $self->task->name : undef,
 		queue			=> $self->queue->name,
+		priority		=> $self->priority,
 		options			=> $self->options,
 		succeeded		=> $self->succeeded,
+		failed			=> $self->failed,
+		aborted			=> $self->aborted,
 		output			=> $self->output,
 		date_enqueued	=> $self->date_enqueued ? $self->date_enqueued->iso8601 : undef,
 		date_to_execute	=> $self->date_to_execute->iso8601,

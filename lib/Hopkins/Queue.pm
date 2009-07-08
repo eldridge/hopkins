@@ -27,7 +27,7 @@ use Hopkins::Work;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(kernel config cache name alias onerror onfatal concurrency tasks halted frozen error));
+__PACKAGE__->mk_accessors(qw(kernel config cache name alias onerror onfatal concurrency works halted frozen error));
 
 =head1 STATES
 
@@ -44,7 +44,7 @@ sub new
 	Hopkins->log_debug('creating queue ' . $self->name);
 
 	$self->alias('queue.' . $self->name);
-	$self->tasks(new Tie::IxHash);
+	$self->works(new Tie::IxHash);
 
 	$self->onerror(undef)
 		unless $self->onerror
@@ -70,7 +70,7 @@ sub read_state
 	$self->halted($self->cache->get('halted') ? 1 : 0);
 	$self->error($self->cache->get('error'));
 
-	my $aref = $self->cache->get('tasks');
+	my $aref = $self->cache->get('works');
 
 	return if not ref $aref eq 'ARRAY';
 
@@ -131,7 +131,7 @@ sub read_state
 		if ($work->date_started or not defined $work->task) {
 			$self->kernel->post(store => notify => task_orphaned => $work->serialize);
 		} else {
-			$self->tasks->Push($work->id => $work);
+			$self->enqueue($work, write => 0);
 		}
 	}
 }
@@ -177,6 +177,59 @@ sub spawn
 	);
 }
 
+=item contents
+
+=cut
+
+sub contents
+{
+	my $self = shift;
+
+	return $self->works->Values;
+}
+
+=item find
+
+=cut
+
+sub find
+{
+	my $self	= shift;
+	my $id		= shift;
+
+	return $self->works->FETCH($id);
+}
+
+=item enqueue
+
+=cut
+
+sub enqueue
+{
+	my $self = shift;
+	my $work = shift;
+	my $args = { @_ };
+
+	$self->works->Push($work->id => $work);
+	$self->write_state unless $args->{write} and $args->{write} == 0;
+}
+
+=item dequeue
+
+=cut
+
+sub dequeue
+{
+	my $self = shift;
+	my $work = shift;
+	my $args = { @_ };
+
+	my $id = UNIVERSAL::isa($work, 'Hopkins::Work') ? $work->id : $work;
+
+	$self->works->Delete($id);
+	$self->write_state unless $args->{write} and $args->{write} == 0;
+}
+
 =item write_state
 
 write the queue's state to disk.
@@ -190,7 +243,7 @@ sub write_state
 	$self->cache->set(frozen => $self->frozen);
 	$self->cache->set(halted => $self->halted);
 	$self->cache->set(error => $self->error);
-	$self->cache->set(tasks => [ map { $_->serialize } $self->tasks->Values ]);
+	$self->cache->set(works => [ map { $_->serialize } $self->works->Values ]);
 }
 
 =item stop
@@ -234,9 +287,17 @@ sub fetch_and_spawn_worker
 	my $self		= shift;
 	my $postback	= shift;
 
+	return if $self->halted;
+
 	#Hopkins->log_debug('polling ' . $self->name . ' queue for tasks to execute');
 
-	if (my $work = $self->dequeue) {
+	my $now		= DateTime->now(time_zone => 'local');
+	my @work	=
+		sort Hopkins::Queue::prioritize
+		grep { not defined $_->worker and $_->date_to_execute < $now }
+		$self->works->Values;
+
+	if (my $work = shift @work) {
 		my $args =
 		{
 			postback	=> $postback->($work),
@@ -248,38 +309,12 @@ sub fetch_and_spawn_worker
 	}
 }
 
-=item dequeue
-
-=cut
-
-sub dequeue
-{
-	my $self = shift;
-
-	my $now		= DateTime->now(time_zone => 'local');
-	my @work	=
-		sort prioritize
-		grep { not defined $_->worker and $_->date_to_execute < $now }
-		$self->tasks->Values;
-
-	return shift @work;
-}
-
 =item prioritize
 
 =cut
 
 sub prioritize
 {
-	my $a = shift;
-	my $b = shift;
-
-	#my $aopts = $a->[5] || {};
-	#my $bopts = $b->[4] || {};
-
-	#my $apri = $aopts->{priority} || 5;
-	#my $bpri = $bopts->{priority} || 5;
-
 	my $apri = $a->priority;
 	my $bpri = $b->priority;
 
@@ -312,7 +347,7 @@ sub status
 	my $self = shift;
 
 	return HOPKINS_QUEUE_STATUS_HALTED	if $self->halted;
-	return HOPKINS_QUEUE_STATUS_RUNNING	if $self->tasks->Length > 0;
+	return HOPKINS_QUEUE_STATUS_RUNNING	if $self->works->Length > 0;
 
 	return HOPKINS_QUEUE_STATUS_IDLE;
 }
@@ -348,14 +383,14 @@ sub num_queued
 	my $self = shift;
 	my $task = shift;
 
-	return $self->tasks->Length if not defined $task;
+	return $self->works->Length if not defined $task;
 
 	if (not ref $task eq 'Hopkins::Task') {
 		Hopkins->log_warn('Hopkins::Queue->num_queued called with argument that is not a Hopkins::Task object');
 		return 0;
 	}
 
-	return scalar grep { $_->task->name eq $task->name } $self->tasks->Values
+	return scalar grep { $_->task->name eq $task->name } $self->works->Values
 }
 
 =item start
@@ -369,7 +404,11 @@ sub start
 	$self->error(undef);
 	$self->halted(0);
 
+	return HOPKINS_QUEUE_ALREADY_RUNNING if $self->is_running;
+
 	$self->spawn;
+
+	return HOPKINS_QUEUE_STARTED;
 }
 
 =item halt
@@ -383,7 +422,6 @@ sub halt
 {
 	my $self = shift;
 
-	$self->stop;
 	$self->halted(1);
 }
 
@@ -398,7 +436,6 @@ sub continue
 {
 	my $self = shift;
 
-	$self->start;
 	$self->halted(0);
 }
 
@@ -461,7 +498,7 @@ sub flush
 	my $self = shift;
 
 	$self->stop;
-	$self->tasks->Delete($self->tasks->Keys);
+	$self->works->Delete($self->works->Keys);
 	$self->start if not $self->halted;
 }
 

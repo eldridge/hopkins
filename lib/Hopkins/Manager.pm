@@ -93,6 +93,7 @@ sub new
 				executor		=> 'executor',
 				enqueue			=> 'enqueue',
 				complete		=> 'complete',
+				abort			=> 'abort',
 
 				shutdown		=> 'shutdown'
 			}
@@ -121,9 +122,6 @@ sub start
 	$kernel->call(manager => 'init_config');	# configuration file
 	$kernel->post(manager => 'init_store');		# database storage sessage
 	$kernel->post(manager => 'init_queues');	# worker queue sessions
-
-	# go ahead and kick off the scheduler too
-	#$kernel->alarm(scheduler => time + $self->hopkins->poll);
 }
 
 =item stop
@@ -148,9 +146,9 @@ sub init_queues
 
 	Hopkins->log_info('creating queues');
 
-	# create a passive queue for each configured queue.  we
-	# use POE::Component::JobQueue and leave the scheduling
-	# up to the manager session.
+	# create a queue object for each configured queue.  we
+	# use an active POE::Component::JobQueue and leave the
+	# scheduling up to the manager session.
 
 	foreach my $name ($self->config->get_queue_names) {
 		my $opts	= $self->config->get_queue_info($name);
@@ -160,22 +158,17 @@ sub init_queues
 
 		$kernel->post(manager => queue_start => $name) unless $queue->halted;
 	}
-
 }
 
 sub queue_start
 {
 	my $self	= $_[OBJECT];
 	my $name	= $_[ARG0];
+	my $queue	= $self->queue($name);
 
-	my $queue = $self->queue($name);
+	return HOPKINS_QUEUE_NOT_FOUND if not defined $queue;
 
-	return HOPKINS_QUEUE_NOT_FOUND			if not defined $queue;
-	return HOPKINS_QUEUE_ALREADY_RUNNING	if $queue->is_running;
-
-	$queue->start;
-
-	return HOPKINS_QUEUE_STARTED;
+	return $queue->start;
 }
 
 sub queue_halt
@@ -184,7 +177,9 @@ sub queue_halt
 	my $name	= $_[ARG0];
 	my $queue	= $self->queue($name);
 
-	$queue->halt if $queue;
+	return HOPKINS_QUEUE_NOT_FOUND if not defined $queue;
+
+	return $queue->halt;
 }
 
 sub queue_continue
@@ -193,7 +188,9 @@ sub queue_continue
 	my $name	= $_[ARG0];
 	my $queue	= $self->queue($name);
 
-	$queue->continue if $queue;
+	return HOPKINS_QUEUE_NOT_FOUND if not defined $queue;
+
+	return $queue->continue;
 }
 
 sub queue_freeze
@@ -202,7 +199,9 @@ sub queue_freeze
 	my $name	= $_[ARG0];
 	my $queue	= $self->queue($name);
 
-	$queue->freeze if $queue;
+	return HOPKINS_QUEUE_NOT_FOUND if not defined $queue;
+
+	return $queue->freeze;
 }
 
 sub queue_thaw
@@ -211,7 +210,20 @@ sub queue_thaw
 	my $name	= $_[ARG0];
 	my $queue	= $self->queue($name);
 
-	$queue->thaw if $queue;
+	return HOPKINS_QUEUE_NOT_FOUND if not defined $queue;
+
+	return $queue->thaw;
+}
+
+sub queue_flush
+{
+	my $self	= $_[OBJECT];
+	my $name	= $_[ARG0];
+	my $queue	= $self->queue($name);
+
+	return HOPKINS_QUEUE_NOT_FOUND if not defined $queue;
+
+	return $queue->flush;
 }
 
 sub queue_shutdown
@@ -220,7 +232,9 @@ sub queue_shutdown
 	my $name	= $_[ARG0];
 	my $queue	= $self->queue($name);
 
-	$queue->shutdown if $queue;
+	return HOPKINS_QUEUE_NOT_FOUND if not defined $queue;
+
+	return $queue->shutdown;
 }
 
 sub queue_check
@@ -236,15 +250,6 @@ sub queue_check_all
 	my $self = $_[OBJECT];
 
 	return values %{ $self->queues };
-}
-
-sub queue_flush
-{
-	my $self	= $_[OBJECT];
-	my $name	= $_[ARG0];
-	my $queue	= $self->queue($name);
-
-	$queue->flush if $queue;
 }
 
 =item queue_failure
@@ -563,10 +568,9 @@ sub enqueue
 	$work->date_enqueued($now);
 	$work->date_to_execute($when);
 
-	# queue the Work and flush Queue state to disk
+	# pass the Work to the Queue for enqueuing
 
-	$queue->tasks->Push($work->id => $work);
-	$queue->write_state;
+	$queue->enqueue($work);
 
 	Hopkins->log_debug("enqueued task $name (" . $work->id . ')');
 
@@ -587,10 +591,31 @@ sub complete
 
 	$work->date_completed(DateTime->now(time_zone => 'local'));
 
-	$work->queue->tasks->Delete($work->id);
-	$work->queue->write_state;
+	$work->queue->dequeue($work);
 
 	$kernel->post(store => notify => task_completed => $work->serialize);
+}
+
+sub abort
+{
+	my $self	= $_[OBJECT];
+	my $kernel	= $_[KERNEL];
+	my $name	= $_[ARG0];
+	my $id		= $_[ARG1];
+
+	my $queue	= $self->queue($name)	or return;
+	my $work	= $queue->find($id)		or return;
+
+	Hopkins->log_debug('aborting task ' . $work->task->name . ' (' . $work->id . ')');
+
+	if ($work->worker) {
+		$kernel->post($work->worker->alias => 'terminate');
+	} else {
+		$queue->dequeue($work);
+		$work->aborted(1);
+
+		$kernel->post(store => notify => task_completed => $work->serialize);
+	}
 }
 
 sub queue
