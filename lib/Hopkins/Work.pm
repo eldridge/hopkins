@@ -20,13 +20,14 @@ use Class::Accessor::Fast;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(id worker task options queue output succeeded date_enqueued date_to_execute date_started date_completed));
+__PACKAGE__->mk_accessors(qw(id worker task priority options queue output succeeded date_enqueued date_to_execute date_started date_completed));
 
 sub new
 {
 	my $self = shift->SUPER::new(@_);
 
-	$self->succeeded(0) if not defined $self->succeeded;
+	$self->succeeded(0)	if not defined $self->succeeded;
+	$self->priority(5)	if not defined $self->priority;
 
 	return $self;
 }

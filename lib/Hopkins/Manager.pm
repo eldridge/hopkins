@@ -508,15 +508,21 @@ sub enqueue
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 	my $name	= $_[ARG0];
-	my $opts	= $_[ARG1];
-	my $when	= $_[ARG2] || DateTime->now(time_zone => 'local');
+	my $topts	= $_[ARG1];
+	my $qopts	= $_[ARG2] || {};
 
-	my $task = $self->config->get_task_info($name);
+	my $task	= $self->config->get_task_info($name);
+	my $now		= DateTime->now(time_zone => 'local');
+	my $when	= $qopts->{when} || $now;
+
+	# make sure the Task exists
 
 	if (not defined $task) {
 		Hopkins->log_warn("unable to enqueue $name; task not found");
 		return HOPKINS_ENQUEUE_TASK_NOT_FOUND;
 	}
+
+	# ensure that the Task's queue exists
 
 	my $queue = $self->queue($task->queue);
 
@@ -525,10 +531,14 @@ sub enqueue
 		return HOPKINS_ENQUEUE_QUEUE_UNAVAILABLE;
 	}
 
+	# ensure that the queue is not frozen
+
 	if ($queue->frozen) {
 		Hopkins->log_warn("unable to enqueue $name; queue " . $task->queue . ' frozen');
 		return HOPKINS_ENQUEUE_QUEUE_FROZEN;
 	}
+
+	# ensure that the requested start time is sane
 
 	if ($when and not UNIVERSAL::isa($when, 'DateTime')) {
 		eval { $when = DateTime::Format::ISO8601->parse_datetime($when) };
@@ -536,28 +546,28 @@ sub enqueue
 		return HOPKINS_ENQUEUE_DATETIME_INVALID;
 	}
 
+	# ensure that we don't stack tasks if requested
+
 	if ($task->stack && $task->stack <= $queue->num_queued($task)) {
 		Hopkins->log_warn("unable to enqueue $name; stack limit reached");
 		return HOPKINS_ENQUEUE_TASK_STACK_LIMIT;
 	}
 
-	# create new work for the queue.  assign a unique ID via
-	# Data::UUID, add it to the queue, and flush the queue's
-	# state to disk.
+	# all of our sanity checks have passed.  looks like we
+	# are good to queue up some work for the queue!  create
+	# and populate a new Work object.  assigning a new UUID
+	# to the work so that we can reference it later.
 
-	my $now		= DateTime->now(time_zone => 'local');
-	my $work	= new Hopkins::Work;
+	my $work = new Hopkins::Work;
 
 	$work->id($ug->create_str);
 	$work->task($task);
 	$work->queue($queue);
-	$work->options($opts);
+	$work->options($topts);
 	$work->date_enqueued($now);
-	$work->date_to_execute($when);
+	$work->date_to_execute($qopts->{when});
 
-	# FIXME: something different has to be done for deferred
-	# work.  "enqueued" tasks should be displayed separately
-	# from "scheduled" tasks anyhow...
+	# queue the Work and flush Queue state to disk
 
 	$queue->tasks->Push($work->id => $work);
 	$queue->write_state;
@@ -567,13 +577,6 @@ sub enqueue
 	# notify the Store that we've enqueued a task
 
 	$kernel->post(store => notify => task_enqueued => $work->serialize);
-
-	# post an enqueue event to the PoCo::JobQueue session.
-	# if the session is not running, this event will have
-	# no effect, though the task will still be enqueued
-	# in hopkins.
-
-	$kernel->post($queue->alias => enqueue => dequeue => $work);
 
 	return HOPKINS_ENQUEUE_OK;
 }

@@ -179,7 +179,7 @@ sub load
 			$status->failed(1);
 		}
 
-		$task->stack(1) if $task->stack eq 'no';
+		$task->stack(1) if $task->stack and $task->stack eq 'no';
 		$task->options([ $self->_setup_options($status, $task->options) ]);
 		$task->schedule($self->_setup_schedule($status, $task));
 

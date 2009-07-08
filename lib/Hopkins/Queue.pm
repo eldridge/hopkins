@@ -142,46 +142,39 @@ sub spawn
 
 	Hopkins->log_debug('spawning queue ' . $self->name);
 
-	POE::Component::JobQueue->spawn
-	(
-		Alias		=> $self->alias,
-		WorkerLimit	=> $self->concurrency,
-		Worker		=> sub { $self->spawn_worker(@_) },
-		Passive		=> { Prioritizer => \&Hopkins::Queue::prioritize },
-	);
-
-	foreach my $work ($self->tasks->Values) {
-		$self->kernel->post($self->alias => enqueue => dequeue => $work);
-	}
-
 	# this passive queue will act as an on-demand task
 	# execution queue, waiting for enqueue events to be
 	# posted to the kernel.
 
 	#POE::Component::JobQueue->spawn
 	#(
-	#	Alias		=> 'worker',
-	#	WorkerLimit	=> 16,
-	#	Worker		=> \&queue_worker,
-	#	Passive		=> { },
+	#	Alias		=> $self->alias,
+	#	WorkerLimit	=> $self->concurrency,
+	#	Worker		=> sub { $self->spawn_worker(@_) },
+	#	Passive		=> { Prioritizer => \&Hopkins::Queue::prioritize },
 	#);
 
-	# this active queue will act as a scheduler, checking
-	# the time and polling the list of loaded task configs
-	# for new tasks to spawn
+	#foreach my $work ($self->tasks->Values) {
+	#	$self->kernel->post($self->alias => enqueue => dequeue => $work);
+	#}
 
-	#POE::Component::JobQueue->spawn
-	#(
-	#	Alias		=> 'scheduler',
-	#	WorkerLimit	=> 16,
-	#	Worker		=> \&queue_scheduler,
-	#	Active		=>
-	#	{
-	#		PollInterval	=> $global->{poll},
-	#		AckAlias		=> 'scheduler',
-	#		AckState		=> \&job_completed
-	#	}
-	#);
+	# this active queue will poll hopkins periodically,
+	# checking the parent Hopkins::Queue object for new
+	# tasks to spawn.
+
+	POE::Component::JobQueue->spawn
+	(
+		Alias		=> $self->alias,
+		WorkerLimit	=> $self->concurrency,
+		Worker		=> sub { $self->fetch_and_spawn_worker(@_) },
+		Active		=>
+		{
+			#PollInterval	=> $global->{poll},
+			PollInterval	=> 15,
+			#AckAlias		=> 'manager',
+			#AckState		=> 'completed'
+		}
+	);
 }
 
 =item write_state
@@ -232,6 +225,46 @@ sub spawn_worker
 	new Hopkins::Worker $args;
 }
 
+=item fetch_and_spawn_worker
+
+=cut
+
+sub fetch_and_spawn_worker
+{
+	my $self		= shift;
+	my $postback	= shift;
+
+	Hopkins->log_debug('polling ' . $self->name . ' queue for tasks to execute');
+
+	if (my $work = $self->dequeue) {
+		my $args =
+		{
+			postback	=> $postback->($work),
+			work		=> $work,
+			queue		=> $self
+		};
+
+		new Hopkins::Worker $args;
+	}
+}
+
+=item dequeue
+
+=cut
+
+sub dequeue
+{
+	my $self = shift;
+
+	my $now		= DateTime->now(time_zone => 'local');
+	my @work	=
+		sort prioritize
+		grep { not defined $_->worker and $_->date_to_execute < $now }
+		$self->tasks->Values;
+
+	return shift @work;
+}
+
 =item prioritize
 
 =cut
@@ -241,11 +274,14 @@ sub prioritize
 	my $a = shift;
 	my $b = shift;
 
-	my $aopts = $a->[5] || {};
-	my $bopts = $b->[4] || {};
+	#my $aopts = $a->[5] || {};
+	#my $bopts = $b->[4] || {};
 
-	my $apri = $aopts->{priority} || 5;
-	my $bpri = $bopts->{priority} || 5;
+	#my $apri = $aopts->{priority} || 5;
+	#my $bpri = $bopts->{priority} || 5;
+
+	my $apri = $a->priority;
+	my $bpri = $b->priority;
 
 	$apri = 1 if $apri < 1;
 	$apri = 9 if $apri > 9;
