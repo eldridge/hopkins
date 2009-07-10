@@ -363,11 +363,11 @@ sub status_string
 	for ($self->status) {
 		$_ == HOPKINS_QUEUE_STATUS_IDLE && return 'idle';
 
-		$_ == HOPKINS_QUEUE_STATUS_RUNNING && $self->frozen
-			&& return 'running (frozen)';
+		#$_ == HOPKINS_QUEUE_STATUS_RUNNING && $self->frozen
+		#	&& return 'running (frozen)';
 
-		$_ == HOPKINS_QUEUE_STATUS_HALTED && $self->frozen
-			&& return 'halted (frozen)';
+		#$_ == HOPKINS_QUEUE_STATUS_HALTED && $self->frozen
+		#	&& return 'halted (frozen)';
 
 		$_ == HOPKINS_QUEUE_STATUS_RUNNING		&& return 'running';
 		$_ == HOPKINS_QUEUE_STATUS_HALTED		&& return 'halted';

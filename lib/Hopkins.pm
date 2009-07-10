@@ -41,7 +41,7 @@ __PACKAGE__->mk_accessors(qw(conf l4pconf scan poll manager));
 
 		my @units = $self->in_units('days', 'hours', 'minutes', 'seconds');
 
-		join ' ', map { $units[0] ? shift(@units) . $_ : () } qw(d h m s);
+		join ' ', map { my $v = shift @units; $v ? $v . $_ : () } qw(d h m s);
 	}
 
 	use overload '""' => \&stringify;
