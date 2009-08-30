@@ -70,7 +70,7 @@ sub task_executing_now
 
 =head1 AUTHOR
 
-Mike Eldridge <meldridge@magazines.com>
+Mike Eldridge <diz@cpan.org>
 
 =cut
 

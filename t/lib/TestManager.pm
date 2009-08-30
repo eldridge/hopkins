@@ -144,7 +144,7 @@ L<JobHarness>
 
 =head1 AUTHOR
 
-Mike Eldridge <meldridge@magazines.com>
+Mike Eldridge <diz@cpan.org>
 
 =head1 LICENSE
 
