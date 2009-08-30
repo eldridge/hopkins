@@ -28,23 +28,17 @@ use base 'POE::API::Peek';
 sub events_waiting
 {
 	my $self	= shift;
-	my $href	= shift;
+	my $alias	= shift;
 
-	foreach my $name (keys %$href) {
-		my $session	= $self->resolve_alias($name);
-		my @events	= @{ $href->{$name} };
-		my @queue	= $self->event_queue_dump;
+	my $session	= $self->resolve_alias($alias);
+	my @queue	= $self->event_queue_dump;
 
-		foreach my $href (@queue) {
-			shift @events if scalar(@events)
-				&& $events[0] eq $href->{event}
-				&& $session->ID == $href->{destination}->ID;
-		}
+	my @list =
+		grep { $_ ne '_garbage_collect' }
+		map { $_->{event} }
+		grep { $session->ID == $_->{destination}->ID } @queue;
 
-		return 0 if scalar @events;
-	}
-
-	return 1;
+	return \@list;
 }
 
 sub sessions_running

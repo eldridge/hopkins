@@ -1,4 +1,4 @@
-use Test::More tests => 37;
+use Test::More tests => 26;
 
 use strict;
 use warnings;
@@ -34,7 +34,7 @@ isa_ok($helper, 'POE::API::Peek', 'POE API');
 
 # check hopkins state: 0 timeslice
 
-ok($helper->is_kernel_running);
+ok($helper->is_kernel_running, 'kernel is running');
 
 isa_ok($hopkins->manager->config, 'Hopkins::Config', 'hopkins->manager->config');
 ok($hopkins->manager->config->loaded, 'config loaded');
@@ -42,7 +42,7 @@ ok($hopkins->manager->config->loaded, 'config loaded');
 cmp_ok($helper->session_count, '==', 2, 'session count');
 ok($helper->resolve_alias('manager'), 'session running: manager');
 
-ok($helper->events_waiting({ manager => [ qw(init_plugins init_store init_queues config_scan) ] }), 'queued events');
+is_deeply($helper->events_waiting('manager'), [qw(init_plugins scheduler init_store init_queues config_scan)], 'queued events');
 
 # check hopkins state: 1 timeslice
 
@@ -52,11 +52,21 @@ cmp_ok($helper->session_count, '==', 3, 'session count');
 ok($helper->resolve_alias('manager'),	'session running: manager');
 ok($helper->resolve_alias('store'),		'session running: store');
 
-ok($helper->events_waiting({ manager => [ qw(queue_start scheduler) ] }), 'queued events');
+if ((localtime)[0] > 30) {
+	is_deeply($helper->events_waiting('manager'), [qw(queue_start queue_start executor config_scan executor)], 'queued events');
+} else {
+	is_deeply($helper->events_waiting('manager'), [qw(queue_start queue_start config_scan executor executor)], 'queued events');
+}
 
 # check hopkins state: 2 timeslice
 
 ok(POE::Kernel->run_one_timeslice, 'run one timeslice');
+
+if ((localtime)[0] > 30) {
+	is_deeply($helper->events_waiting('manager'), [qw(executor config_scan executor)], 'queued events');
+} else {
+	is_deeply($helper->events_waiting('manager'), [qw(config_scan executor executor)], 'queued events');
+}
 
 cmp_ok($helper->session_count, '==', 5, 'session count');
 
@@ -67,88 +77,4 @@ ok($helper->resolve_alias('queue.serial'),		'session running: queue.serial');
 
 cmp_ok($hopkins->manager->queue('serial')->num_queued, '==', 0, 'queue length: serial');
 cmp_ok($hopkins->manager->queue('parallel')->num_queued, '==', 0, 'queue length: parallel');
-
-# invoke the scheduler synchronously and check state again
-
-POE::Kernel->call(manager => 'scheduler');
-
-cmp_ok($hopkins->manager->queue('serial')->num_queued, '==', 0, 'queue length: serial');
-cmp_ok($hopkins->manager->queue('parallel')->num_queued, '==', 2, 'queue length: parallel');
-
-ok($helper->events_waiting({ store => [ 'notify' ], 'queue.parallel' => [ 'enqueue' ] }), 'queued events');
-
-# check hopkins state: 3 timeslice
-
-ok(POE::Kernel->run_one_timeslice, 'run one timeslice');
-
-ok($helper->events_waiting({ 'queue.parallel' => [ 'dequeue' ] }), 'queued events');
-
-# check hopkins state: 3 timeslice
-
-ok(POE::Kernel->run_one_timeslice, 'run one timeslice');
-
-ok($helper->resolve_alias('manager'),			'session running: manager');
-ok($helper->resolve_alias('store'),				'session running: store');
-ok($helper->resolve_alias('queue.parallel'),	'session running: queue.parallel');
-ok($helper->resolve_alias('queue.serial'),		'session running: queue.serial');
-ok($helper->resolve_alias('queue.parallel.worker.6'),	'session running: queue.parallel.worker.6');
-ok($helper->resolve_alias('queue.parallel.worker.7'),	'session running: queue.parallel.worker.7');
-
-#use Data::Dumper;
-#$Data::Dumper::Indent = 1;
-
-#diag Dumper [ $helper->event_queue_dump ];
-#diag Dumper [ map { $helper->session_alias_list($_) } $helper->session_list ];
-
-exit;
-
-POE::Session->create
-(
-	inline_states =>
-	{
-		_start					=> \&test_start,
-		test_01startup_sessions	=> \&test_01startup_sessions,
-		test_02queue_task		=> \&test_02queue_task,
-	}
-);
-
-$hopkins->run;
-
-sub test_start
-{
-	my $kernel = $_[KERNEL];
-
-	ok(1, 'test sesssion running');
-
-	$kernel->alias_set('test_05scheduler');
-
-	$kernel->alarm(test_01startup_sessions	=> time + 1);
-	$kernel->alarm(test_02queue_task		=> time + 2);
-}
-
-sub test_01startup_sessions
-{
-	my $kernel = $_[KERNEL];
-
-	ok(1, 'test_01startup_sessions');
-
-	my @sessions	= $helper->session_list;
-	my @aliases		= sort map { POE::Kernel->alias($_) } @sessions;
-
-	cmp_ok(scalar(@aliases), '==', 6, '6 running sessions');
-
-	is($aliases[0], 'manager',			'session: manager');
-	is($aliases[1], 'queue.parallel',	'session: queue.parallel');
-	is($aliases[2], 'queue.serial',		'session: queue.serial');
-	is($aliases[3], 'state',			'session: state');
-	is($aliases[4], 'store',			'session: store');
-	is($aliases[5], 'test_05scheduler',	'session: test_05scheduler');
-}
-
-sub test_02queue_task
-{
-	my $kernel = $_[KERNEL];
-
-	ok(1, 'test_02queue_task');
-}
 
