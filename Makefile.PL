@@ -35,6 +35,7 @@ requires 'POE::Component::JobQueue'		=> '0.55';
 requires 'POE::Wheel::Run'				=> '1.2179';
 
 # required for the test suite
+test_requires 'Class::MOP';
 test_requires 'Directory::Scratch';
 test_requires 'FindBin';
 test_requires 'Template';

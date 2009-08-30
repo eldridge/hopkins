@@ -13,7 +13,6 @@ TestEnvironment for hopkins
 
 =cut
 
-use POE;
 use Class::Accessor::Fast;
 use Directory::Scratch;
 use FindBin;
@@ -23,7 +22,7 @@ use UNIVERSAL::can;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(conf source scratch template fake_task fake_work));
+__PACKAGE__->mk_accessors(qw(conf source scratch template kernel task work events));
 
 no warnings 'redefine';
 
@@ -44,15 +43,25 @@ sub new
 	my $self = shift->SUPER::new(@_);
 
 	$self->scratch(new Directory::Scratch TEMPLATE => 'hopkins-test-XXXXX');
+	$self->events([]);
 
-	$self->fake_task(new Test::MockObject);
-	$self->fake_task->set_always('class', 'Hopkins::Test::Count');
-	$self->fake_task->set_always('name', 'counter');
+	$self->kernel(new Test::MockObject);
+	$self->kernel->mock(post => sub { push @{ $self->events }, [ @_ ] });
 
-	$self->fake_work(new Test::MockObject);
-	$self->fake_work->set_always('task', $self->fake_task);
-	$self->fake_work->set_always('date_started', undef);
-	$self->fake_work->set_always('serialize',
+	$self->task(new Test::MockObject);
+	$self->task->set_isa('Hopkins::Task');
+	$self->task->set_always(class => 'Hopkins::Test::Count');
+	$self->task->set_always(name => 'counter');
+
+	$self->work(new Test::MockObject);
+	$self->work->set_isa('Hopkins::Work');
+	$self->work->set_always(id => 'DEADBEEF');
+	$self->work->set_always(task => $self->task);
+	$self->work->set_always(options => { fruit => 'apple' });
+	$self->work->set_always(date_enqueued => '2009-06-01T20:24:42');
+	$self->work->set_always(date_started => undef);
+	$self->work->set_always(date_completed => undef);
+	$self->work->set_always(serialize =>
 		{
 			id				=> 'DEADBEEF',
 			task			=> 'Count',
