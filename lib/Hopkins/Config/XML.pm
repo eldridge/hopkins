@@ -82,6 +82,8 @@ schema, see the XML Schema document in Hopkins::Config::XML.
 
 =cut
 
+use DateTime::Set;
+use DateTime::Event::MultiCron;
 use File::Monitor;
 use Path::Class::Dir;
 use XML::Simple;

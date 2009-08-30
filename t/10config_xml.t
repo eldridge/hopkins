@@ -1,4 +1,4 @@
-use Test::More tests => 61;
+use Test::More tests => 62;
 
 use strict;
 use warnings;
@@ -24,6 +24,7 @@ $status = $config->load;
 isa_ok($status, 'Hopkins::Config::Status', 'hopkins config status object');
 
 ok($status->ok,					'status indicates OK condition');
+is($status->errmsg, undef,		'status error message is undefined');
 ok(!$status->failed,			'status does not indicate failure condition');
 ok($status->parsed,				'status indicates parsing succeeded');
 ok(!$status->store_modified,	'status does not indicate store was modified');
