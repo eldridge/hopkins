@@ -44,7 +44,7 @@
 	<task name="Email">
 		<cmd>/usr/bin/mail</cmd>
 		<queue>parallel</queue>
-		<schedule><cron>*/10 * * * *</cron></schedule>
+		<schedule><cron>* * * * *</cron></schedule>
 	</task>
 
 	<task name="Sum">

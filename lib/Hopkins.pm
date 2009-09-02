@@ -3,7 +3,7 @@ package Hopkins;
 use strict;
 use warnings;
 
-our $VERSION = '0.900';
+our $VERSION = '0.900_01';
 
 =head1 NAME
 
@@ -17,7 +17,7 @@ Hopkins - POE powered job management system
 
 use base 'Class::Accessor::Fast';
 
-use POE qw(Component::JobQueue Component::Server::SOAP Wheel::Run);
+use POE qw(Component::JobQueue Wheel::Run);
 
 use Class::Accessor::Fast;
 use POE::API::Peek;
@@ -60,7 +60,6 @@ __PACKAGE__->mk_accessors(qw(conf l4pconf scan poll manager));
 	# the first alias returned by POE::Kernel->alias_list
 
 	eval q/
-		sub POE::Component::Server::SOAP::DEBUG () { 0 }
 		sub POE::Wheel::SocketFactory::DEBUG { 0 }
 		sub POE::Kernel::alias { (shift->alias_list(@_))[0] }
 	/;

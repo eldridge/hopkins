@@ -2,6 +2,7 @@
 author:
   - 'Mike Eldridge <diz@cpan.org>'
 build_requires:
+  Class::MOP: 0
   Directory::Scratch: 0
   ExtUtils::MakeMaker: 6.42
   FindBin: 0
@@ -40,4 +41,4 @@ requires:
   XML::Simple: 2.18
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.900
+version: 0.900_01
