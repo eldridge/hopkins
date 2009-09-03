@@ -39,6 +39,7 @@ requires:
   Tie::IxHash: 1.21
   XML::LibXML: 1.69
   XML::Simple: 2.18
+  YAML::XS: 0.32
 resources:
   license: http://dev.perl.org/licenses/
 version: 0.900_01

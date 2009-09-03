@@ -239,7 +239,7 @@ sub backend_spawn
 		Program			=> sub { new Hopkins::Store::Backend { config => $self->config } },
 		StdoutEvent		=> 'stdout',
 		StderrEvent		=> 'stderr',
-		StdioFilter		=> new POE::Filter::Reference 'YAML'
+		StdioFilter		=> new POE::Filter::Reference 'YAML::XS'
 	);
 
 	$kernel->sig(CHLD => 'done');

@@ -25,6 +25,7 @@ use POE::API::Peek;
 use DateTime;
 use Log::Log4perl;
 use Log::Log4perl::Level;
+use YAML::XS;
 
 use Hopkins::Manager;
 
@@ -43,6 +44,18 @@ __PACKAGE__->mk_accessors(qw(conf l4pconf scan poll manager));
 	}
 
 	use overload '""' => \&stringify;
+}
+
+# make YAML::XS compatible with POE::Filter::Reference since
+# YAML eats shit and dies with long crazy quote-filled text.
+
+{
+	package YAML::XS;
+
+	no warnings 'once';
+
+	*freeze	= \&Dump;
+	*thaw	= \&Load;
 }
 
 # prevent perl from bitching and complaining about prototype

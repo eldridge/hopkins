@@ -33,6 +33,7 @@ requires 'POE'							=> '1.005';
 requires 'POE::API::Peek'				=> '1.34';
 requires 'POE::Component::JobQueue'		=> '0.55';
 requires 'POE::Wheel::Run'				=> '1.2179';
+requires 'YAML::XS'						=> '0.32';
 
 # required for the test suite
 test_requires 'Class::MOP';
