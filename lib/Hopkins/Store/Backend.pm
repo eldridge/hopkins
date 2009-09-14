@@ -53,7 +53,7 @@ sub new
 
 	autoflush STATUS 1;
 
-	$self->filter(new POE::Filter::Reference 'YAML::XS');
+	$self->filter(new POE::Filter::Reference 'Storable');
 
 	$self->connect and $self->loop;
 }
