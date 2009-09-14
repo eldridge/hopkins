@@ -388,6 +388,8 @@ sub config_load
 		$kernel->post(store => 'init');
 	}
 
+	$kernel->alarm('executor');
+
 	$kernel->post(manager => 'init_plugins');
 	$kernel->post(manager => 'scheduler');
 }
