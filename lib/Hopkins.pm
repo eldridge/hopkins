@@ -55,9 +55,7 @@ __PACKAGE__->mk_accessors(qw(conf l4pconf scan poll manager));
 	local $SIG{__WARN__} = sub { 1 };
 
 	# forcefully disable the unavoidable debugging output
-	# from several of the POE components.  also install a
-	# shortcut into the POE::Kernel namespace to retrieve
-	# the first alias returned by POE::Kernel->alias_list
+	# from several of the POE components.
 
 	eval q/
 		sub POE::Wheel::SocketFactory::DEBUG { 0 }
