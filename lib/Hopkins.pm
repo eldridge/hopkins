@@ -58,7 +58,7 @@ __PACKAGE__->mk_accessors(qw(conf l4pconf scan poll manager));
 	# from several of the POE components.
 
 	eval q/
-		sub POE::Wheel::SocketFactory::DEBUG { 0 }
+		sub POE::Wheel::SocketFactory::DEBUG () { 0 }
 		sub POE::Kernel::alias { (shift->alias_list(@_))[0] }
 	/;
 }
