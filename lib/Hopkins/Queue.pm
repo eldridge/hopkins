@@ -184,8 +184,12 @@ sub spawn
 sub contents
 {
 	my $self = shift;
+	my $args = ref $_[0] eq 'HASH' ? shift : { @_ };
 
-	return $self->works->Values;
+	my $date	= $args->{executing};
+	my @works	= $self->works->Values;
+
+	return $date ? grep { $_->date_to_execute < $date } @works : @works;
 }
 
 =item find
