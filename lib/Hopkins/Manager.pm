@@ -422,7 +422,7 @@ sub shutdown
 
 	Hopkins->log_info('received shutdown request');
 
-	$kernel->alarm('scheduler');
+	$kernel->alarm('executor');
 	$kernel->alarm('config_scan');
 
 	foreach my $name ($self->config->get_queue_names) {
