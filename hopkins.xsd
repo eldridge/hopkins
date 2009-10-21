@@ -30,14 +30,57 @@
 			<xs:element name="dsn" />
 			<xs:element name="user" />
 			<xs:element name="pass" />
-			<xs:element name="options" type="options" minOccurs="0" />
+			<xs:element name="options" type="dboptions" minOccurs="0" />
 		</xs:all>
+	</xs:complexType>
+
+	<xs:complexType name="dboptions">
+		<xs:sequence>
+			<xs:element name="option" maxOccurs="unbounded" />
+		</xs:sequence>
 	</xs:complexType>
 
 	<xs:complexType name="options">
 		<xs:sequence>
-			<xs:element name="option" maxOccurs="unbounded" />
+			<xs:element name="option" type="option" maxOccurs="unbounded" />
 		</xs:sequence>
+	</xs:complexType>
+
+	<xs:complexType name="option">
+		<xs:all>
+			<xs:element name="choices" type="choices" minOccurs="0" />
+		</xs:all>
+
+		<xs:attribute name="name" type="xs:string" />
+		<xs:attribute name="value" type="xs:string" />
+		<xs:attribute name="type">
+			<xs:simpleType>
+				<xs:restriction base="xs:string">
+					<xs:enumeration value="bool" />
+					<xs:enumeration value="text" />
+					<xs:enumeration value="combo" />
+				</xs:restriction>
+			</xs:simpleType>
+		</xs:attribute>
+	</xs:complexType>
+
+	<xs:complexType name="choices">
+		<xs:sequence>
+			<xs:element name="choice" minOccurs="0" maxOccurs="unbounded" />
+		</xs:sequence>
+
+		<xs:attribute name="type">
+			<xs:simpleType>
+				<xs:restriction base="xs:string">
+					<xs:enumeration value="json" />
+					<xs:enumeration value="xml" />
+				</xs:restriction>
+			</xs:simpleType>
+		</xs:attribute>
+		<xs:attribute name="src" type="xs:string" />
+		<xs:attribute name="root" type="xs:string" />
+		<xs:attribute name="name" type="xs:string" />
+		<xs:attribute name="value" type="xs:string" />
 	</xs:complexType>
 
 	<xs:complexType name="queue">
