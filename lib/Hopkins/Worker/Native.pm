@@ -59,6 +59,16 @@ sub execute
 	}
 
 	$self->report;
+
+	# POE::Wheel::Run doesn't execute DESTROY and END blocks
+	# since it exits the child process by using POSIX::_exit
+	# instead of exit().  this prevents log4perl appenders
+	# such as Log::Dispatch::Email from flushing buffers.
+	# although the task may not be using log4perl, there's
+	# no harm in calling it explicitly.  it will probably
+	# save the user some headache.
+
+	Log::Log4perl::Logger::cleanup();
 }
 
 sub _execute
@@ -92,9 +102,11 @@ sub _execute
 
 	eval { require $file; $class->new({ options => $self->work->options })->run };
 
+	my $err = $@;
+
 	$SIG{TERM} = 'IGNORE';
 
-	if (my $err = $@) {
+	if ($err) {
 		print STDERR $err;
 		$self->status->{error} = $err unless $self->status->{terminated};
 		Hopkins->log_worker_stderr($self->work->task->name, $err);
