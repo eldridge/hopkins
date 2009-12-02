@@ -155,6 +155,13 @@ sub done
 
 	$kernel->sig('CHLD');
 	$kernel->post($self->alias => 'statuswait');
+
+	if ($self->work->task->cmd) {
+		$self->status({}) unless $self->status;
+
+		$self->status->{error} = "command exited with status $status"
+			if $status != 0;
+	}
 }
 
 sub statuswait
@@ -228,7 +235,9 @@ sub stdout
 {
 	my $self = $_[OBJECT];
 
-	$self->status($_[ARG0]);
+	$self->work->task->class
+		? $self->status($_[ARG0])
+		: Hopkins->log_worker_stdout($self->work->task->name, $_[ARG0]);
 }
 
 sub stderr
