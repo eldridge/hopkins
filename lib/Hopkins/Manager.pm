@@ -271,7 +271,7 @@ sub queue_failure
 
 	$queue->error($error);
 
-	Hopkins->log_error($msg);
+	Hopkins->log_warn($msg);
 }
 
 =item init_store
