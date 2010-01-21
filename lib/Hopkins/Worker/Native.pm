@@ -75,7 +75,7 @@ sub _execute
 {
 	my $self = shift;
 
-	$SIG{TERM} = sub { $self->status->{terminated} = 1 and die 'terminated' };
+	$SIG{TERM} = sub { $self->status->{terminated} = 1; die 'terminated' };
 
 	my $class	= $self->work->task->class;
 	my $file	= "$class.pm";
