@@ -7,9 +7,104 @@ our $VERSION = '0.900_01';
 
 =head1 NAME
 
-Hopkins - POE powered job management system
+Hopkins - complete multiqueue job scheduling and execution system
 
 =head1 DESCRIPTION
+
+Hopkins is, in simplest terms, a better cron.  In depth,
+though, Hopkins is an extensible application geared toward
+the management, scheduling, and execution of both inline
+perl as well as external binaries.
+
+Hopkins's advantages include:
+
+=over 4
+
+=item * simple
+
+There are many job management systems out there, varying in
+complexity.  Hopkins was designed to be simple to understand
+and simple to configure.
+
+=item * agnostic implementation
+
+While Hopkins is written in perl and will dynamically load,
+instantiate, and execute any object that provides a "run"
+method, it does not require your class to be aware of its
+environment.  In fact, Hopkins does not require your task
+to be written in perl at all.
+
+=item * live, extensible configuration
+
+Hopkins ships with Hopkins::Config::XML, which allows your
+queues and tasks to be defined entirely in XML, validated
+before load via XML Schema.  However, Hopkins::Config may
+be subclassed to provide configuration any way you like.
+
+Hopkins also provides a mechanism by which your config may
+be scanned for changes.  For example, Hopkins::Config::XML
+periodically checks the configuration file for changes and
+validates the XML before replacing the existing config.
+
+=item * multiple queues
+
+Hopkins supports an infinite number of queues that each
+have their own concurrency limits and behaviors upon task
+failure.  Per-queue concurrencies allow you to define serial
+queues (concurrency=1) or worker queues (concurrency > 1).
+
+Each queue's behavior on task failure is configurable.  For
+example, queues may be configured to halt upon task failure,
+stopping the execution of queued tasks until a human has a
+chance to examine the failure.
+
+=item * multiple schedules per task
+
+Each configured task may have a number of schedules defined,
+including none.
+
+=item * output/execution logging via DBI
+
+Each queued task records state information to a configurable
+database backend.  Information stored includes enqueue time,
+time to execute, execution time, completion time, status
+flags, as well as all output generated on stdout and stderr.
+
+=item * disconnected operation
+
+If the database backend ever becomes unavailable, Hopkins
+will continue to run, queueing up database requests.
+
+=item * extensible
+
+Hopkins supports loadable plugins which may hook into the
+running system by making use of POE.  Two plugins include
+a web-based user interface (Hopkins::Plugin::HMI) as well
+as a SOAP-based interface (Hopkins::Plugin::RPC).
+
+=item * log4perl
+
+Hopkins makes use of the excellent Log::Log4perl module for
+its logging, allowing you to direct task execution errors
+and other output to the appropriate parties with ease.
+
+=item * durability
+
+Queue (both task and database) contents are written to disk
+upon entering/exiting the queue.  Thus, if the daemon were
+to be restarted for any reason, it will continue processing
+from where it left off.
+
+=item * reliability
+
+Hopkins has been used in an environment handling > 60 tasks
+in four separate queues and does not eat resources.  I make
+no promises as to its scalability beyond that.
+
+=back
+
+See the L<Hopkins::Manual> for information on configuring
+Hopkins using the default XML configuration.
 
 =cut
 
@@ -65,9 +160,7 @@ __PACKAGE__->mk_accessors(qw(conf l4pconf scan poll manager));
 
 =head1 METHODS
 
-=over 4
-
-=item new
+=head2 new
 
 instantiates a new Hopkins object.  the Hopkins constructor
 accepts a hash of options.  currently supported options are:
@@ -89,6 +182,8 @@ configuration scan resolution (in seconds)
 =item poll
 
 scheduler poll resolution (in seconds)
+
+=back
 
 =cut
 
@@ -140,16 +235,15 @@ sub new
 	return $self;
 }
 
-=item run
+=head2 run
 
-a simple shortcut to conceal the fact that we are using POE.
-aren't we pretty?  giggity giggity.
+start the hopkins daemon.  this method will never return.
 
 =cut
 
 sub run { POE::Kernel->run }
 
-=item is_session_running
+=head2 is_session_running
 
 returns a truth value indicating whether or not a session
 exists with the specified alias.
@@ -169,7 +263,7 @@ sub is_session_active
 	return scalar grep { $name eq $_ } @sessions;
 }
 
-=item get_running_sessions
+=head2 get_running_sessions
 
 returns a list of currently active session aliases
 
@@ -184,7 +278,7 @@ sub get_running_sessions
 	return map { POE::Kernel->alias($_) } $api->session_list;
 }
 
-=item parse_datetime
+=head2 parse_datetime
 
 DateTime::Format::ISO8601->parse_datetime wrapper that traps
 exceptions.  this really shouldn't be necessary.
@@ -202,7 +296,7 @@ sub parse_datetime
 	return $@ ? undef : $date;
 }
 
-=item get_logger
+=head2 get_logger
 
 returns a Log::Log4perl logger for the current session.  the
 get_logger expects the POE kernel to be passed to it.  if no
