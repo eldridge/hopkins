@@ -103,8 +103,8 @@ no promises as to its scalability beyond that.
 
 =back
 
-See the L<Hopkins::Manual> for information on configuring
-Hopkins using the default XML configuration.
+See L<Hopkins::Manual::Configuration::XML> for information
+on configuring Hopkins using the default XML configuration.
 
 =cut
 
@@ -368,7 +368,7 @@ Mike Eldridge <diz@cpan.org>
 
 =head1 LICENSE
 
-Copyright (c) 2008 Mike Eldridge.  All rights reserved.
+Copyright (c) 2010 Mike Eldridge.  All rights reserved.
 
 This program is free software; you may redistribute it
 and/or modify it under the same terms as Perl itself.
