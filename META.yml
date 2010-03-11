@@ -43,4 +43,4 @@ requires:
   YAML::XS: 0.32
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.900_01
+version: 0.900_02
