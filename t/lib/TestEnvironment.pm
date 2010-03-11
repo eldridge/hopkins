@@ -129,10 +129,6 @@ sub log
 	print STDERR "$text" if $ENV{HOPKINS_DEBUG};
 }
 
-=head1 SEE ALSO
-
-L<TestManager>
-
 =head1 AUTHOR
 
 Mike Eldridge <diz@cpan.org>

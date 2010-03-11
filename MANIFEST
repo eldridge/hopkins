@@ -48,5 +48,4 @@ t/hopkins.xml.tt
 t/hopkins.xml2.tt
 t/lib/TestEnvironment.pm
 t/lib/TestHelper.pm
-t/lib/TestManager.pm
 t/log4perl.conf.tt
