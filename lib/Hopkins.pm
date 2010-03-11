@@ -373,6 +373,10 @@ Copyright (c) 2008 Mike Eldridge.  All rights reserved.
 This program is free software; you may redistribute it
 and/or modify it under the same terms as Perl itself.
 
+=head1 HOME
+
+http://github.com/tripside/hopkins
+
 =cut
 
 1;
