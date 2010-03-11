@@ -43,6 +43,8 @@ test_requires 'Template';
 test_requires 'Test::MockObject';
 test_requires 'POE::API::Peek';
 
+install_script 'bin/hopjobd';
+
 #auto_install;
 WriteAll;
 
