@@ -15,6 +15,7 @@ requires 'Class::Accessor::Fast'		=> '0.31';
 requires 'List::Object'					=> '0.01';
 requires 'Tie::IxHash'					=> '1.21';
 requires 'Cache::FileCache'				=> 0;
+requires 'Data::UUID'					=> 0;
 
 # date manipulation and testing
 requires 'DateTime'						=> '0.37';
