@@ -160,6 +160,8 @@ sub proc
 	my $self	= $_[OBJECT];
 	my $kernel	= $_[KERNEL];
 
+	$kernel->alarm(proc => time + HOPKINS_STORE_EVENT_PROC_INTERVAL);
+
 	if (not defined $self->backend) {
 		$kernel->post(store => 'spawn');
 		return;
