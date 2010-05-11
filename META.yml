@@ -27,10 +27,13 @@ requires:
   Cache::FileCache: 0
   Class::Accessor::Fast: 0.31
   DBIx::Class: 0.08103
+  Data::UUID: 0
   DateTime: 0.37
   DateTime::Event::MultiCron: 0.01
+  DateTime::Format::ISO8601: 0.06
   DateTime::Set: 0.25
   File::Monitor: 0.10
+  JSON: 2.16
   List::Object: 0.01
   Log::Log4perl: 1.12
   POE: 1.005
@@ -43,4 +46,4 @@ requires:
   YAML::XS: 0.32
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.900_02
+version: 0.009001

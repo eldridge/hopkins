@@ -1,0 +1,9 @@
+Revision history for Hopkins
+
+0.9.1 - Tue May 11 17:01:44 CDT 2010
+ - fix bug in the store session whereby a loss in the
+   backend process would break the cyclic event processing
+   alarm, preventing events from being sent to the backend
+   whenever the connection was reestablished
+ - update dependencies in Makefile.PL
+

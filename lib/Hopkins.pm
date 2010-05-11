@@ -3,7 +3,7 @@ package Hopkins;
 use strict;
 use warnings;
 
-our $VERSION = '0.900_02';
+our $VERSION = version->declare('0.9.1');
 
 =head1 NAME
 
