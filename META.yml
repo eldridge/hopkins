@@ -34,6 +34,7 @@ requires:
   DateTime::Set: 0.25
   File::Monitor: 0.10
   JSON: 2.16
+  LWP::UserAgent: 5.833
   List::Object: 0.01
   Log::Log4perl: 1.12
   POE: 1.005
@@ -44,6 +45,7 @@ requires:
   XML::LibXML: 1.69
   XML::Simple: 2.18
   YAML::XS: 0.32
+  version: 0.77
 resources:
   license: http://dev.perl.org/licenses/
 version: 0.009002
