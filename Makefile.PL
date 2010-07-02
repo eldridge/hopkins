@@ -17,6 +17,8 @@ requires 'Tie::IxHash'					=> '1.21';
 requires 'Cache::FileCache'				=> 0;
 requires 'Data::UUID'					=> 0;
 requires 'JSON'							=> '2.16';
+requires 'LWP::UserAgent'				=> '5.833';
+requires 'version'						=> '0.77';
 
 # date manipulation and testing
 requires 'DateTime'						=> '0.37';
