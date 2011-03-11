@@ -29,7 +29,7 @@ use Hopkins::Store::Schema;
 
 use base 'Class::Accessor::Fast';
 
-__PACKAGE__->mk_accessors(qw(config filter schema));
+__PACKAGE__->mk_accessors(qw(input select config filter schema));
 
 =head1 METHODS
 
@@ -54,6 +54,12 @@ sub new
 	autoflush STATUS 1;
 
 	$self->filter(new POE::Filter::Reference 'Storable');
+	$self->input(new IO::Handle);
+	$self->select(new IO::Select);
+
+	$self->input->fdopen(fileno(STDIN), 'r');
+	$self->input->blocking(0);
+	$self->select->add($self->input);
 
 	$self->connect and $self->loop;
 }
@@ -153,8 +159,12 @@ sub loop
 {
 	my $self = shift;
 
-	while (my $line = <STDIN>) {
-		my $aref = $self->filter->get([ $line ]);
+	while ($self->select->can_read) {
+		my $chunk;
+
+		$self->input->read($chunk, 4096);
+
+		my $aref = $self->filter->get([ $chunk ]);
 
 		foreach my $href (@$aref) {
 			$self->process($href) or return;
@@ -206,6 +216,8 @@ sub process_event
 	my $method	= "process_event_$event";
 
 	if ($self->can($method) && $self->$method(@$aref[1..$#{$aref}])) {
+		Hopkins->log_debug("processing event $id");
+
 		print STATUS $_
 			foreach @{ $self->filter->put([ { eventproc => { id => $id } } ]) };
 	}
